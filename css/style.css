@@ -79,6 +79,13 @@ button, select { font: inherit; color: inherit; cursor: pointer; }
   color: var(--on-dark);
 }
 #section:empty { display: none; }
+#direction {
+  margin-top: 4px;
+  font: italic 600 15px/1.3 var(--font-display);
+  color: var(--ink);
+  text-shadow: 0 0 6px #fff, 0 0 2px #fff;
+}
+#direction:empty { display: none; }
 #practice { font-family: var(--font-body); font-style: normal; color: var(--yellow); }
 .icon-btn {
   position: absolute;

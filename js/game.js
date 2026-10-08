@@ -35,6 +35,7 @@
     resultScore: $('#result-score'),
     resultDetail: $('#result-detail'),
     practice: $('#practice'),
+    direction: $('#direction'),
     pause: $('#pause'),
     countdown: $('#countdown'),
   };
@@ -87,7 +88,7 @@
       if (!st.rest && st.section > endSection) break;
       if (st.rest) { y += st.rows; continue; }
       tiles.push({
-        y, h: st.rows, lane, section: st.section, rps: st.rows / st.sec,
+        y, h: st.rows, lane, section: st.section, rps: st.rows / st.sec, direction: st.direction || '',
         events: st.events.slice().sort((a, b) => a.o - b.o), evIdx: -1,
         run: st.events.some((e) => e.o > 1e-6), // 트릴·꾸밈음처럼 한 번에 여러 음이 흘러나오는 타일
         long: st.rows >= 2, played: false, missed: false,
@@ -432,6 +433,7 @@
     ui.score.textContent = score;
     const t = chart.tiles[Math.min(next, chart.tiles.length - 1)];
     ui.section.textContent = chart.sections[t.section];
+    ui.direction.textContent = t.direction;
     ui.progress.style.width = (100 * next / chart.tiles.length).toFixed(1) + '%';
     ui.practice.hidden = !settings.practice;
     if (settings.practice) ui.practice.textContent = '연습 모드 · 실수 ' + (errors + missed);

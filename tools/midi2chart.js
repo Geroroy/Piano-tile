@@ -18,6 +18,7 @@
  *   --per-onset       타일 1개 = 악보에서 동시에 시작하는 음 한 묶음 (터치 하나가 정확히 한 순간의 음).
  *                     타일 높이는 게임이 원곡 박자로 정하고, 너무 빽빽한 곳만 칠 수 있게 늘린다.
  *   --composer-id ID  composers/ 폴더의 작곡가 정보 ID (예: chopin)
+ *   --tempo-map 파일  악보 지시어에 맞춘 템포 지도(JSON, tools/tempo/ 참고). 없으면 MIDI의 템포를 그대로 씀
  */
 'use strict';
 const fs = require('fs');
@@ -38,6 +39,7 @@ function parseArgs(argv) {
     else if (a === '--credit') opts.credit = v();
     else if (a === '--composer-id') opts.composerId = v();
     else if (a === '--per-onset') opts.perOnset = true;
+    else if (a === '--tempo-map') opts.tempoMap = v();
     else if (a === '--difficulty') opts.difficulty = parseInt(v(), 10);
     else if (a === '--id') opts.id = v();
     else if (a === '--title') opts.title = v();
@@ -122,7 +124,8 @@ const TICKS = 96; // 차트에 저장하는 시간 해상도: 4분음표 1박 = 
  * 원래 속도로 울리게 한다 (하나씩 늘려 치면 떨림이 아니라 또박또박한 소리가 됨).
  * 긴 패시지는 ORN_MAX_NOTES 음 / ORN_MAX_SEC 초 단위로 나눠 여러 번 치게 한다.
  */
-const ORN_GAP = 0.085;
+const ORN_GAP = 0.095;
+const GRACE_GAP = 0.095; // 두 음만 있어도 이보다 가까우면 묶음 (꾸밈음·펼침화음)
 const ORN_MAX_NOTES = 8;
 const ORN_MAX_SEC = 0.45;
 function mergeOrnaments(tiles) {
@@ -131,7 +134,9 @@ function mergeOrnaments(tiles) {
   for (let i = 0; i < tiles.length;) {
     let j = i;
     while (j + 1 < tiles.length && secOf(tiles[j]) < ORN_GAP) j++;
-    if (j - i + 1 < 3) { out.push(tiles[i]); i++; continue; }
+    // 3음 이상 빠른 연속음, 또는 꾸밈음·펼침화음처럼 아주 가까운 두 음
+    const tight = j > i && secOf(tiles[i]) < GRACE_GAP;
+    if (j - i + 1 < 3 && !tight) { out.push(tiles[i]); i++; continue; }
     // i..j 가 빠른 연속 음 (j 는 마지막 음)
     for (let k = i; k <= j;) {
       let e = k, sec = 0;
@@ -152,6 +157,55 @@ function mergeOrnaments(tiles) {
   }
   tiles.length = 0;
   out.forEach((t) => tiles.push(t));
+}
+
+/* 템포 지도: [마디(소수 가능), BPM, 'step'|'ramp'] 목록 → 박 위치별 BPM */
+function tempoMapFn(points, bars) {
+  const posOf = (m) => {
+    const i = Math.min(bars.length - 1, Math.max(0, Math.floor(m) - 1));
+    return bars[i].start + (m - Math.floor(m)) * bars[i].len + (m - 1 >= bars.length ? bars[i].len : 0);
+  };
+  const pts = points.map(([m, q, kind]) => ({ pos: posOf(m), q, ramp: kind === 'ramp' }));
+  return (b) => {
+    let i = -1;
+    for (let k = 0; k < pts.length; k++) if (pts[k].pos <= b + 1e-6) i = k;
+    if (i < 0) return pts[0].q;
+    const n = pts[i + 1];
+    if (n && n.ramp && n.pos > pts[i].pos) {
+      const f = Math.min(1, (b - pts[i].pos) / (n.pos - pts[i].pos));
+      return pts[i].q + (n.q - pts[i].q) * f;
+    }
+    return pts[i].q;
+  };
+}
+
+/*
+ * 칠 수 없을 만큼 빠른 곳은 '음 하나'가 아니라 '마디 전체'를 같은 비율로 늘린다 → 마디 안 리듬 비율 유지.
+ * 늘이는 비율은 마디마다 최대 STRETCH_STEP 배씩만 바뀌게 다듬어 갑작스러운 템포 변화가 없게 한다.
+ */
+const MIN_TAP_SEC = 0.135;
+const STRETCH_STEP = 1.1;
+function stretchBars(tiles, bars) {
+  const barOf = (t) => {
+    let lo = 0, hi = bars.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (bars[mid].start <= t.start + 1e-6) lo = mid; else hi = mid - 1; }
+    return lo;
+  };
+  const k = bars.map(() => 1);
+  tiles.forEach((t) => {
+    if (t.run) return;
+    const sec = (t.beats * 60) / t.qpm;
+    const bi = barOf(t);
+    k[bi] = Math.max(k[bi], MIN_TAP_SEC / sec);
+  });
+  for (let i = 1; i < k.length; i++) k[i] = Math.max(k[i], k[i - 1] / STRETCH_STEP);
+  for (let i = k.length - 2; i >= 0; i--) k[i] = Math.max(k[i], k[i + 1] / STRETCH_STEP);
+  tiles.forEach((t) => { t.qpm /= k[barOf(t)]; });
+  if (process.env.STRETCH_DEBUG) {
+    k.forEach((x, i) => { if (x > 1.25) process.stderr.write('  m' + (i + 1) + ' x' + x.toFixed(2) + '\n'); });
+  }
+  const stretched = k.filter((x) => x > 1.001).length;
+  process.stderr.write('늘인 마디 ' + stretched + '/' + k.length + ', 최대 ' + Math.max(...k).toFixed(2) + '배\n');
 }
 
 function markPedal(tiles, bars) {
@@ -203,7 +257,7 @@ function convert(opts) {
   if (!notes.length) throw new Error('음표가 없습니다');
   const endBeat = Math.max(...notes.map((n) => n.s)) + 1e-6;
 
-  const qpmAt = (b) => {
+  let qpmAt = (b) => {
     let q = 120;
     for (const t of tempos) { if (t.tick / D <= b + 1e-9) q = t.qpm; else break; }
     return q;
@@ -218,6 +272,8 @@ function convert(opts) {
     bars.push({ start: b, len });
     b = r6(b + len);
   }
+
+  if (opts.tempoMap) qpmAt = tempoMapFn(JSON.parse(fs.readFileSync(opts.tempoMap, 'utf8')).points, bars);
 
   // 마디별로 타일 길이(unit)를 고르고 잘게 나눈다
   const tiles = []; // { start, beats, rows, qpm } 또는 { rest:true, rows }
@@ -235,6 +291,7 @@ function convert(opts) {
       i = j;
     }
     mergeOrnaments(tiles);
+    stretchBars(tiles, bars);
     let ti = 0;
     for (const bar of bars) {
       while (ti < tiles.length && tiles[ti].start < bar.start - 1e-6) ti++;
@@ -282,6 +339,16 @@ function convert(opts) {
     })
     : [{ name: opts.title, tile: 0 }];
 
+  // 템포 지도의 악보 지시어(라틴어/이탈리아어만) → 화면에 표시할 위치
+  const directions = [];
+  if (opts.tempoMap) {
+    for (const [m, , , label] of JSON.parse(fs.readFileSync(opts.tempoMap, 'utf8')).points) {
+      if (!label || /[가-힣]/.test(label)) continue;
+      const bi = Math.min(bars.length - 1, Math.max(0, Math.floor(m) - 1));
+      directions.push({ text: label, tile: playableIndex[barFirstTile[bi]] || 0 });
+    }
+  }
+
   // 직렬화: 타일 = "칸,박,템포:시작.음.길이.세기;..."  쉼표 = "r:칸"
   const lines = [];
   bars.forEach((bar, bi) => {
@@ -292,7 +359,7 @@ function convert(opts) {
       const ev = t.notes.map((n) => [
         Math.round((n.s - t.start) * TICKS), n.m, Math.max(1, Math.round((n.e - n.s) * TICKS)), n.v,
       ].join('.'));
-      return t.rows + ',' + r6(t.beats) + ',' + Math.round(t.qpm) + (t.pedal ? ',1' : '') + ':' + ev.join(';');
+      return t.rows + ',' + r6(t.beats) + ',' + Math.round(t.qpm * 100) / 100 + (t.pedal ? ',1' : '') + ':' + ev.join(';');
     });
     if (toks.length) lines.push('    ' + toks.join(' ') + '  // m.' + (bi + 1));
   });
@@ -308,6 +375,7 @@ PianoTiles.registerSong({
 ${opts.composerId ? '  composerId: ' + JSON.stringify(opts.composerId) + ',\n' : ''}  difficulty: ${opts.difficulty},
   credit: ${JSON.stringify(opts.credit)},
   sections: ${JSON.stringify(sections, null, 2).replace(/\n/g, '\n  ')},
+${directions.length ? '  directions: ' + JSON.stringify(directions) + ',\n' : ''}
   chart: \`
 ${lines.join('\n')}
   \`,

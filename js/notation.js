@@ -82,13 +82,14 @@
   // '한 순간 = 한 타일' 모드: 화면은 일정한 속도로 흐르고, 타일 높이는 원곡의 다음 음까지 시간에 비례.
   // 너무 빽빽해 칠 수 없는 곳(ONSET_MIN_ROWS 미만)만 시간을 늘린다.
   const ONSET_RPS = 3.2;
-  const ONSET_MIN_ROWS = 0.55;
+  const ONSET_MIN_ROWS = 0.42; // 안전장치 (변환기가 이미 마디 단위로 늘려 둠)
   const ONSET_MAX_ROWS = 3;
   function songSteps(song) {
     const out = [];
     if (song.chart) {
       const marks = (song.sections || [{ name: song.title, tile: 0 }]).slice().sort((a, b) => a.tile - b.tile);
-      let tileNo = 0, si = 0;
+      let tileNo = 0, si = 0, di = -1;
+      const dirs = (song.directions || []).slice().sort((a, b) => a.tile - b.tile);
       for (const st of parseTimedChart(song.chart)) {
         const secPerBeat = 60 / (st.qpm || 120);
         if (st.rest) { out.push({ rest: true, rows: st.rows, sec: null }); continue; }
@@ -96,10 +97,12 @@
         if (st.rows === 0) {
           const full = Math.max(ONSET_MIN_ROWS, st.beats * secPerBeat * ONSET_RPS);
           const h = Math.min(full, ONSET_MAX_ROWS);
+          while (di + 1 < dirs.length && dirs[di + 1].tile <= tileNo) di++;
           out.push({
             rows: h,
             sec: h / ONSET_RPS,
             section: si,
+            direction: di >= 0 && dirs[di].tile <= tileNo ? dirs[di].text : '',
             pedal: st.pedal,
             // 길이는 원래 음 사이 간격 대비 비율 → 늘어난 만큼 함께 늘어남
             // 시작·길이는 원래 음 사이 간격 대비 비율 → 늘어난 만큼 함께 늘어남 (꾸밈음 타일은 o>0)
