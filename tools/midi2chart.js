@@ -2,32 +2,38 @@
 /*
  * MIDI 파일 → 피아노 타일 곡 파일(songs/*.js) 변환기
  *
+ * MIDI의 모든 음을 원래 리듬·세기 그대로 타일에 나눠 담는다.
+ * 타일을 치면 그 타일 구간의 음들(양손)이 실제 박자대로 연주된다.
+ *
  * 사용법:
  *   node tools/midi2chart.js 입력.mid --id my-song --title "곡 제목" --composer "작곡가" > songs/my-song.js
  *
  * 옵션:
- *   --unit <박>      타일 1칸의 길이 (4분음표=1, 기본 1). 이보다 짧은 음들은 한 타일 안에 '~' 로 묶임
- *   --split <MIDI>   이 음 미만은 왼손 반주로 취급 (기본 60 = C4)
- *   --tracks 0,2     사용할 트랙 번호 (기본: 전부)
- *   --tempo <배율>   섹션 스크롤 속도 배율 (기본 1)
- *   --bars <N>       N 마디(4/4 기준 4N박)마다 섹션을 나눔 (기본 16)
- *   --max-chord <N>  오른손 화음 최대 음 수 (기본 3, 1이면 멜로디만)
+ *   --rate <칸/초>    원곡 템포에서 목표 타일 속도 (기본 2.3). 마디마다 이 값에 가장 가까운 타일 길이를 고른다
+ *   --max-rows <N>    새 음 없이 이어지는 구간을 합친 '긴 타일'의 최대 칸 수 (기본 4)
+ *   --tracks 0,1      사용할 트랙 번호 (기본: 전부)
+ *   --sections "1:서주|8:제1주제"   마디 번호:구간 이름 (메뉴의 시작 구간 선택과 화면 표시에 사용)
+ *   --credit "..."    출처 표기
+ *   --difficulty N    1~5
  */
 'use strict';
 const fs = require('fs');
 
 function parseArgs(argv) {
-  const opts = { unit: 1, split: 60, tracks: null, tempo: 1, bars: 16, maxChord: 3, id: 'new-song', title: '새 곡', composer: '' };
+  const opts = {
+    rate: 2.3, maxRows: 4, tracks: null, sections: '', credit: '', difficulty: 3,
+    id: 'new-song', title: '새 곡', composer: '',
+  };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const v = () => argv[++i];
-    if (a === '--unit') opts.unit = parseFloat(v());
-    else if (a === '--split') opts.split = parseInt(v(), 10);
+    if (a === '--rate') opts.rate = parseFloat(v());
+    else if (a === '--max-rows') opts.maxRows = parseInt(v(), 10);
     else if (a === '--tracks') opts.tracks = v().split(',').map(Number);
-    else if (a === '--tempo') opts.tempo = parseFloat(v());
-    else if (a === '--bars') opts.bars = parseInt(v(), 10);
-    else if (a === '--max-chord') opts.maxChord = parseInt(v(), 10);
+    else if (a === '--sections') opts.sections = v();
+    else if (a === '--credit') opts.credit = v();
+    else if (a === '--difficulty') opts.difficulty = parseInt(v(), 10);
     else if (a === '--id') opts.id = v();
     else if (a === '--title') opts.title = v();
     else if (a === '--composer') opts.composer = v();
@@ -54,6 +60,8 @@ function parseMidi(buf) {
   p = 8 + hdrLen;
 
   const tracks = [];
+  const tempos = [];
+  const timeSigs = [];
   for (let t = 0; t < ntrks && p < buf.length; t++) {
     const id = buf.toString('ascii', p, p + 4); p += 4;
     const len = u32();
@@ -64,10 +72,16 @@ function parseMidi(buf) {
     let tick = 0, status = 0;
     while (p < end) {
       tick += vlq();
-      let b = buf[p];
-      if (b & 0x80) { status = b; p++; } // 아니면 running status
+      if (buf[p] & 0x80) status = buf[p++]; // 아니면 running status
       const type = status & 0xf0;
-      if (status === 0xff) { p++; const l = vlq(); p += l; continue; }
+      if (status === 0xff) {
+        const mt = buf[p++];
+        const l = vlq();
+        if (mt === 0x51) tempos.push({ tick, qpm: 60000000 / ((buf[p] << 16) | (buf[p + 1] << 8) | buf[p + 2]) });
+        if (mt === 0x58) timeSigs.push({ tick, num: buf[p], den: 1 << buf[p + 1] });
+        p += l;
+        continue;
+      }
       if (status === 0xf0 || status === 0xf7) { const l = vlq(); p += l; continue; }
       const d1 = buf[p++];
       const d2 = (type === 0xc0 || type === 0xd0) ? 0 : buf[p++];
@@ -85,75 +99,123 @@ function parseMidi(buf) {
     p = end;
     tracks.push(notes);
   }
-  return { division, tracks };
+  tempos.sort((a, b) => a.tick - b.tick);
+  timeSigs.sort((a, b) => a.tick - b.tick);
+  return { division, tracks, tempos, timeSigs };
 }
 
-const NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
-const name = (m) => NAMES[m % 12] + (Math.floor(m / 12) - 1);
-const fmt = (x) => String(Math.round(x * 100) / 100);
+const TICKS = 96; // 차트에 저장하는 시간 해상도: 4분음표 1박 = 96
+const UNITS = [0.5, 1, 1.5, 2, 3, 4, 6];
+const r6 = (x) => Math.round(x * 1e6) / 1e6;
 
 function convert(opts) {
-  const { division, tracks } = parseMidi(fs.readFileSync(opts.file));
-  const notes = tracks.filter((_, i) => !opts.tracks || opts.tracks.includes(i)).flat();
+  const { division: D, tracks, tempos, timeSigs } = parseMidi(fs.readFileSync(opts.file));
+
+  // 음 모으기 (같은 높이·같은 시작의 중복 음은 긴 쪽만 남김)
+  const byKey = new Map();
+  tracks.forEach((t, i) => {
+    if (opts.tracks && !opts.tracks.includes(i)) return;
+    for (const n of t) {
+      const s = n.start / D;
+      const e = (n.end !== undefined ? n.end : n.start + D) / D;
+      const key = n.pitch + '@' + n.start;
+      const prev = byKey.get(key);
+      if (!prev || prev.e < e) byKey.set(key, { s, e, m: n.pitch, v: Math.max(n.vel, prev ? prev.v : 0) });
+    }
+  });
+  const notes = [...byKey.values()].sort((a, b) => a.s - b.s || a.m - b.m);
   if (!notes.length) throw new Error('음표가 없습니다');
+  const endBeat = Math.max(...notes.map((n) => n.s)) + 1e-6;
 
-  // 16분음표 격자로 정렬해서 같은 시점의 음을 묶는다
-  const grid = division / 4;
-  const onsets = new Map();
-  for (const n of notes) {
-    const q = Math.round(n.start / grid);
-    if (!onsets.has(q)) onsets.set(q, []);
-    onsets.get(q).push(n.pitch);
+  const qpmAt = (b) => {
+    let q = 120;
+    for (const t of tempos) { if (t.tick / D <= b + 1e-9) q = t.qpm; else break; }
+    return q;
+  };
+
+  // 마디 목록
+  const sigs = timeSigs.length ? timeSigs : [{ tick: 0, num: 4, den: 4 }];
+  const bars = [];
+  for (let b = 0, si = 0; b < endBeat;) {
+    while (si + 1 < sigs.length && sigs[si + 1].tick / D <= b + 1e-9) si++;
+    const len = (sigs[si].num * 4) / sigs[si].den;
+    bars.push({ start: b, len });
+    b = r6(b + len);
   }
-  const times = [...onsets.keys()].sort((a, b) => a - b);
 
-  // 각 시점: 오른손(split 이상) 위쪽 음들, 왼손 최저음 몇 개
-  const events = times.map((q, i) => {
-    const ps = [...new Set(onsets.get(q))].sort((a, b) => a - b);
-    const rh = ps.filter((m) => m >= opts.split).slice(-opts.maxChord);
-    const lh = ps.filter((m) => m < opts.split).slice(0, 3);
-    const nextQ = i + 1 < times.length ? times[i + 1] : q + 4;
-    return { beat: (q * grid) / division, dur: ((nextQ - q) * grid) / division, rh, lh };
+  // 마디별로 타일 길이(unit)를 고르고 잘게 나눈다
+  const tiles = []; // { start, beats, rows, qpm } 또는 { rest:true, rows }
+  const barFirstTile = [];
+  let ni = 0;
+  for (const bar of bars) {
+    const qpm = qpmAt(bar.start);
+    let unit = 1, best = Infinity;
+    for (const u of UNITS) {
+      if (Math.abs(bar.len / u - Math.round(bar.len / u)) > 1e-6) continue;
+      const diff = Math.abs(Math.log((qpm / 60 / u) / opts.rate));
+      if (diff < best) { best = diff; unit = u; }
+    }
+    barFirstTile.push(tiles.length);
+    for (let k = 0; k < Math.round(bar.len / unit); k++) {
+      const s = r6(bar.start + k * unit);
+      const e = r6(s + unit);
+      const startIdx = ni;
+      while (ni < notes.length && notes[ni].s < e - 1e-6) ni++;
+      const hasOnset = ni > startIdx;
+      const last = tiles[tiles.length - 1];
+      if (!hasOnset && last && !last.rest && last.rows + 1 <= opts.maxRows) {
+        last.beats = r6(last.beats + unit);
+        last.rows += 1;
+      } else if (!hasOnset) {
+        if (last && last.rest) last.rows += 1;
+        else tiles.push({ rest: true, rows: 1 });
+      } else {
+        tiles.push({ start: s, beats: unit, rows: 1, qpm, notes: notes.slice(startIdx, ni) });
+      }
+    }
+  }
+
+  // 구간 이름 → 타일 번호(쉼표 제외한 순번)
+  const playableIndex = [];
+  let count = 0;
+  tiles.forEach((t) => { playableIndex.push(count); if (!t.rest) count++; });
+  const sections = opts.sections
+    ? opts.sections.split('|').map((part) => {
+      const [bar, ...name] = part.split(':');
+      const bi = Math.min(bars.length - 1, Math.max(0, parseInt(bar, 10) - 1));
+      return { name: name.join(':').trim(), tile: playableIndex[barFirstTile[bi]] || 0 };
+    })
+    : [{ name: opts.title, tile: 0 }];
+
+  // 직렬화: 타일 = "칸,박,템포:시작.음.길이.세기;..."  쉼표 = "r:칸"
+  const lines = [];
+  bars.forEach((bar, bi) => {
+    const from = barFirstTile[bi];
+    const to = bi + 1 < bars.length ? barFirstTile[bi + 1] : tiles.length;
+    const toks = tiles.slice(from, to).map((t) => {
+      if (t.rest) return 'r:' + t.rows;
+      const ev = t.notes.map((n) => [
+        Math.round((n.s - t.start) * TICKS), n.m, Math.max(1, Math.round((n.e - n.s) * TICKS)), n.v,
+      ].join('.'));
+      return t.rows + ',' + r6(t.beats) + ',' + Math.round(t.qpm) + ':' + ev.join(';');
+    });
+    if (toks.length) lines.push('    ' + toks.join(' ') + '  // m.' + (bi + 1));
   });
 
-  // unit 보다 짧은 이벤트는 다음 이벤트와 한 타일로 합친다
-  const steps = [];
-  let cur = null;
-  for (const e of events) {
-    const mel = e.rh.length ? e.rh : e.lh.slice(-1);
-    const bass = e.rh.length ? e.lh : e.lh.slice(0, -1);
-    if (!cur) cur = { beat: e.beat, dur: 0, seq: [], bass: [] };
-    cur.seq.push(mel);
-    if (!cur.bass.length) cur.bass = bass;
-    cur.dur += e.dur;
-    if (cur.dur >= opts.unit - 1e-6) { steps.push(cur); cur = null; }
-  }
-  if (cur) steps.push(cur);
-
-  const sections = [];
-  const barBeats = 4 * opts.bars;
-  for (const st of steps) {
-    const si = Math.floor(st.beat / barBeats);
-    if (!sections[si]) sections[si] = [];
-    const mel = st.seq.map((c) => c.map(name).join('+')).join('~');
-    const bass = st.bass.length ? '/' + st.bass.map(name).join('+') : '';
-    sections[si].push(mel + bass + ':' + fmt(st.dur));
-  }
-
-  const out = sections.filter(Boolean).map((toks, i) => {
-    const lines = [];
-    for (let j = 0; j < toks.length; j += 6) lines.push('        ' + toks.slice(j, j + 6).join(' '));
-    return `    {\n      name: '파트 ${i + 1}',\n      tempo: ${opts.tempo},\n      unit: ${opts.unit},\n      notes: \`\n${lines.join('\n')}\n      \`,\n    },`;
-  });
-
-  return `PianoTiles.registerSong({
+  return `/*
+ * ${opts.title} — ${opts.composer}
+ * tools/midi2chart.js 로 MIDI에서 자동 생성된 파일입니다. 직접 고치기보다 MIDI를 다시 변환하세요.
+${opts.credit ? ' * 출처: ' + opts.credit + '\n' : ''} */
+PianoTiles.registerSong({
   id: ${JSON.stringify(opts.id)},
   title: ${JSON.stringify(opts.title)},
   composer: ${JSON.stringify(opts.composer)},
-  difficulty: 3,
-  sections: [
-${out.join('\n')}
-  ],
+  difficulty: ${opts.difficulty},
+  credit: ${JSON.stringify(opts.credit)},
+  sections: ${JSON.stringify(sections, null, 2).replace(/\n/g, '\n  ')},
+  chart: \`
+${lines.join('\n')}
+  \`,
 });
 `;
 }
@@ -161,7 +223,7 @@ ${out.join('\n')}
 if (require.main === module) {
   const opts = parseArgs(process.argv.slice(2));
   if (!opts.file) {
-    console.error('사용법: node tools/midi2chart.js 입력.mid [--id ID] [--title 제목] [--composer 작곡가] [--unit 1] [--split 60]');
+    console.error('사용법: node tools/midi2chart.js 입력.mid [--id ID] [--title 제목] [--composer 작곡가] [--sections "1:도입|9:후렴"]');
     process.exit(1);
   }
   try {

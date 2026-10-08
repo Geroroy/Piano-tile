@@ -9,6 +9,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
@@ -62,12 +63,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
   text-shadow: 0 1px 0 #fff, 0 0 12px rgba(255, 255, 255, 0.9);
 }
 #section, #practice {
+  display: table;
+  margin: 2px auto 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(247, 248, 250, 0.88);
   font-size: 13px;
   font-weight: 600;
-  color: #4a5262;
-  text-shadow: 0 0 6px #fff;
+  color: #3a4150;
 }
-#practice { color: var(--accent); margin-top: 2px; }
+#section:empty { display: none; }
+#practice { color: var(--accent); }
 .icon-btn {
   position: absolute;
   top: 12px;
@@ -124,6 +130,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
 
 #song-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.song-card {
+  border: 1px solid #262b36;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #1b1f29, #12151c);
+  overflow: hidden;
+}
+.song-card:hover { border-color: var(--accent); }
 .song {
   width: 100%;
   display: flex;
@@ -131,14 +144,40 @@ button { font: inherit; color: inherit; cursor: pointer; }
   justify-content: space-between;
   gap: 12px;
   padding: 16px;
-  border: 1px solid #262b36;
-  border-radius: 14px;
-  background: linear-gradient(180deg, #1b1f29, #12151c);
+  border: 0;
+  background: transparent;
   text-align: left;
-  transition: transform 0.1s, border-color 0.1s;
+  transition: transform 0.1s;
 }
-.song:hover { border-color: var(--accent); }
 .song:active { transform: scale(0.98); }
+.song:focus-visible, .song-start select:focus-visible, .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.song-start {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.song-start select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #343a48;
+  background: #12151c;
+  color: var(--text);
+  font: inherit;
+}
+.song-credit {
+  margin: 0;
+  padding: 10px 16px 12px;
+  border-top: 1px solid #222731;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #6f7888;
+  overflow-wrap: anywhere;
+}
 .song-main, .song-meta { display: flex; flex-direction: column; gap: 4px; }
 .song-meta { align-items: flex-end; text-align: right; flex-shrink: 0; }
 .song-title { font-size: 18px; font-weight: 700; }
@@ -164,7 +203,6 @@ kbd {
 
 /* ---------- 결과 ---------- */
 #result { display: flex; align-items: center; justify-content: center; }
-#result[hidden] { display: none; }
 #result .card { text-align: center; width: 100%; max-width: 360px; }
 #result h2 { margin: 0 0 8px; font-size: 32px; }
 #result-stars { font-size: 40px; color: var(--star); letter-spacing: 6px; }
