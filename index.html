@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0b0d12">
+  <title>Piano Tiles</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main id="stage">
+    <canvas id="board" aria-label="게임 화면"></canvas>
+
+    <div id="hud" hidden>
+      <button id="btn-back" class="icon-btn" aria-label="메뉴로">✕</button>
+      <div id="progress"><div id="progress-fill"></div></div>
+      <div id="score">0</div>
+      <div id="section"></div>
+      <div id="practice" hidden></div>
+    </div>
+
+    <section id="menu" hidden>
+      <header>
+        <h1>Piano Tiles</h1>
+        <p class="tagline">검은 타일만 눌러 곡을 완성하세요</p>
+      </header>
+
+      <div class="options">
+        <div class="seg" role="group" aria-label="속도">
+          <button data-speed="normal">보통</button>
+          <button data-speed="fast">빠름</button>
+          <button data-speed="insane">매우 빠름</button>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="opt-practice">
+          <span>연습 모드 (틀려도 계속)</span>
+        </label>
+      </div>
+
+      <ul id="song-list"></ul>
+
+      <footer class="help">
+        탭 / 클릭 또는 키보드 <kbd>D</kbd><kbd>F</kbd><kbd>J</kbd><kbd>K</kbd> · 긴 타일은 누르고 있기 · <kbd>Esc</kbd> 메뉴
+      </footer>
+    </section>
+
+    <section id="result" hidden>
+      <div class="card">
+        <h2 id="result-title"></h2>
+        <div id="result-stars"></div>
+        <div id="result-score"></div>
+        <p id="result-detail"></p>
+        <div class="actions">
+          <button id="btn-retry" class="primary">다시 하기</button>
+          <button id="btn-menu">곡 선택</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/notation.js"></script>
+  <script src="js/audio.js"></script>
+  <!-- 곡 목록: 새 곡은 songs/ 폴더에 파일을 만들고 여기에 한 줄 추가 -->
+  <script src="songs/chopin-ballade-1.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+:root {
+  --bg: #0b0d12;
+  --panel: rgba(16, 19, 26, 0.94);
+  --text: #f2f4f8;
+  --muted: #9aa3b2;
+  --accent: #1f8fff;
+  --danger: #e82838;
+  --star: #ffc93c;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button { font: inherit; color: inherit; cursor: pointer; }
+
+#stage {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  height: 100%;
+  margin: 0 auto;
+}
+
+#board {
+  display: block;
+  touch-action: none;
+}
+
+/* ---------- HUD ---------- */
+#hud {
+  position: absolute;
+  inset: 0 0 auto 0;
+  pointer-events: none;
+  text-align: center;
+}
+#progress {
+  height: 4px;
+  background: rgba(0, 0, 0, 0.08);
+}
+#progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--danger);
+  transition: width 0.2s;
+}
+#score {
+  margin-top: 10px;
+  font-size: 44px;
+  font-weight: 800;
+  color: var(--danger);
+  text-shadow: 0 1px 0 #fff, 0 0 12px rgba(255, 255, 255, 0.9);
+}
+#section, #practice {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4a5262;
+  text-shadow: 0 0 6px #fff;
+}
+#practice { color: var(--accent); margin-top: 2px; }
+.icon-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(11, 13, 18, 0.55);
+  color: #fff;
+  pointer-events: auto;
+}
+
+/* ---------- 메뉴 ---------- */
+#menu, #result {
+  position: absolute;
+  inset: 0;
+  background: var(--panel);
+  backdrop-filter: blur(4px);
+  overflow-y: auto;
+  padding: 32px 16px 24px;
+}
+#menu header { text-align: center; margin-bottom: 20px; }
+#menu h1 {
+  margin: 0;
+  font-size: 40px;
+  letter-spacing: -0.02em;
+}
+.tagline { margin: 6px 0 0; color: var(--muted); }
+
+.options {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.seg {
+  display: flex;
+  border-radius: 999px;
+  background: #1a1e27;
+  padding: 4px;
+}
+.seg button {
+  border: 0;
+  background: transparent;
+  padding: 8px 16px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.toggle { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+.toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+#song-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.song {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #262b36;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #1b1f29, #12151c);
+  text-align: left;
+  transition: transform 0.1s, border-color 0.1s;
+}
+.song:hover { border-color: var(--accent); }
+.song:active { transform: scale(0.98); }
+.song-main, .song-meta { display: flex; flex-direction: column; gap: 4px; }
+.song-meta { align-items: flex-end; text-align: right; flex-shrink: 0; }
+.song-title { font-size: 18px; font-weight: 700; }
+.song-sub, .song-diff { font-size: 12px; color: var(--muted); }
+.song-best { color: var(--star); font-weight: 700; font-size: 14px; }
+
+.help {
+  margin-top: 24px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 2;
+}
+kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 0 5px;
+  margin: 0 1px;
+  border: 1px solid #3a4050;
+  border-radius: 4px;
+  font: 11px/18px ui-monospace, monospace;
+}
+
+/* ---------- 결과 ---------- */
+#result { display: flex; align-items: center; justify-content: center; }
+#result[hidden] { display: none; }
+#result .card { text-align: center; width: 100%; max-width: 360px; }
+#result h2 { margin: 0 0 8px; font-size: 32px; }
+#result-stars { font-size: 40px; color: var(--star); letter-spacing: 6px; }
+#result-score { font-size: 64px; font-weight: 800; margin: 8px 0; }
+#result-detail { color: var(--muted); font-size: 14px; }
+.actions { display: flex; gap: 10px; justify-content: center; margin-top: 24px; }
+.actions button {
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1px solid #343a48;
+  background: #1a1e27;
+  font-weight: 700;
+}
+.actions .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
