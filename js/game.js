@@ -35,7 +35,7 @@
     set(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { /* 저장 불가 환경 */ } },
   };
 
-  const settings = Object.assign({ speed: 'normal', practice: false }, store.get('pt.settings') || {});
+  const settings = Object.assign({ speed: 'normal', practice: false, sectionOnly: true }, store.get('pt.settings') || {});
   if (!SPEEDS[settings.speed]) settings.speed = 'normal';
 
   // ---------- 차트 생성 ----------
@@ -59,8 +59,8 @@
     return stepCache.get(song);
   }
 
-  // startSection 부터 시작하는 차트. 줄 배치는 곡마다 고정(시드)이라 어디서 시작해도 같다.
-  function buildChart(song, startSection) {
+  // startSection ~ endSection 구간만 담은 차트. 줄 배치는 곡마다 고정(시드)이라 어디서 시작해도 같다.
+  function buildChart(song, startSection, endSection) {
     const { steps, sections } = songData(song);
     const rand = rng32(hashStr(song.id));
     const tiles = [];
@@ -75,6 +75,7 @@
         if (!started && st.section >= startSection) started = true;
       }
       if (!started) continue;
+      if (!st.rest && st.section > endSection) break;
       if (st.rest) { y += st.rows; continue; }
       tiles.push({
         y, h: st.rows, lane, section: st.section, events: st.events, rps: st.rows / st.sec,
@@ -83,7 +84,7 @@
       });
       y += st.rows;
     }
-    return { song, tiles, sections, startSection, length: y };
+    return { song, tiles, sections, startSection, endSection, length: y };
   }
 
   // ---------- 상태 ----------
@@ -116,9 +117,10 @@
 
   // ---------- 게임 흐름 ----------
   let lastVoices = null;
-  function startSong(song, startSection) {
+  function startSong(song, startSection, endSection) {
     Piano.ensure();
-    chart = buildChart(song, startSection || 0);
+    const last = songData(song).sections.length - 1;
+    chart = buildChart(song, startSection || 0, endSection === undefined ? last : endSection);
     lastVoices = null;
     scroll = 0; speed = 0; next = 0; score = 0; errors = 0; missed = 0;
     failTarget = null; failCell = null; endTimer = 0;
@@ -233,11 +235,15 @@
     ui.resultStars.textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
     ui.resultScore.textContent = score;
     const parts = [chart.song.title, SPEEDS[settings.speed].label, '진행 ' + Math.round(ratio * 100) + '%'];
-    if (chart.startSection > 0) parts.push(chart.sections[chart.startSection] + '부터');
+    if (!isFullRun()) {
+      parts.push(chart.startSection === chart.endSection
+        ? '구간: ' + chart.sections[chart.startSection]
+        : chart.sections[chart.startSection] + '부터');
+    }
     if (settings.practice) parts.push('연습 모드 · 실수 ' + (errors + missed) + '회');
     ui.resultDetail.textContent = parts.join(' · ');
 
-    if (!settings.practice && chart.startSection === 0) {
+    if (!settings.practice && isFullRun()) {
       const key = 'pt.best.' + chart.song.id + '.' + settings.speed;
       const best = store.get(key) || { score: 0, stars: 0 };
       if (score > best.score || stars > best.stars) {
@@ -245,6 +251,10 @@
       }
     }
     ui.result.hidden = false;
+  }
+
+  function isFullRun() {
+    return chart.startSection === 0 && chart.endSection === chart.sections.length - 1;
   }
 
   // ---------- 업데이트 ----------
@@ -450,7 +460,7 @@
       showMenu();
     } else if ((e.key === 'Enter' || e.key === ' ') && !ui.result.hidden) {
       e.preventDefault();
-      startSong(chart.song, chart.startSection);
+      startSong(chart.song, chart.startSection, chart.endSection);
     }
   });
   window.addEventListener('keyup', (e) => {
@@ -459,7 +469,7 @@
   });
   window.addEventListener('blur', () => { for (const id of [...holds.keys()]) finishHold(id, false); });
 
-  $('#btn-retry').addEventListener('click', () => startSong(chart.song, chart.startSection));
+  $('#btn-retry').addEventListener('click', () => startSong(chart.song, chart.startSection, chart.endSection));
   $('#btn-menu').addEventListener('click', showMenu);
   $('#btn-back').addEventListener('click', showMenu);
 
@@ -480,7 +490,8 @@
       const li = document.createElement('li');
       li.className = 'song-card';
       li.innerHTML =
-        '<button class="song"><span class="song-main"><span class="song-title"></span><span class="song-sub"></span></span>' +
+        '<button class="song"><span class="song-main"><span class="song-title"></span><span class="song-sub"></span>' +
+        '<span class="song-play">▶ 처음부터 전곡 플레이</span></span>' +
         '<span class="song-meta"><span class="song-best"></span><span class="song-diff"></span></span></button>';
       li.querySelector('.song-title').textContent = song.title;
       li.querySelector('.song-sub').textContent =
@@ -490,21 +501,8 @@
         ? '★'.repeat(best.stars) + '☆'.repeat(3 - best.stars) + ' ' + best.score
         : '기록 없음';
 
-      let select = null;
-      if (sections.length > 1) {
-        const row = document.createElement('label');
-        row.className = 'song-start';
-        row.htmlFor = 'start-' + si;
-        row.textContent = '시작 구간';
-        select = document.createElement('select');
-        select.id = 'start-' + si;
-        sections.forEach((name, i) => select.add(new Option((i + 1) + '. ' + name, String(i))));
-        select.value = String(Math.min(sections.length - 1, Math.max(0, Number(store.get('pt.start.' + song.id)) || 0)));
-        select.addEventListener('change', () => store.set('pt.start.' + song.id, Number(select.value)));
-        row.appendChild(select);
-        li.appendChild(row);
-      }
-      li.querySelector('.song').addEventListener('click', () => startSong(song, select ? Number(select.value) : 0));
+      li.querySelector('.song').addEventListener('click', () => startSong(song, 0));
+      if (sections.length > 1) li.appendChild(sectionPicker(song, steps, sections));
       if (song.credit) {
         const credit = document.createElement('p');
         credit.className = 'song-credit';
@@ -513,6 +511,43 @@
       }
       ui.songList.appendChild(li);
     });
+  }
+
+  // 구간 바로가기: 누르면 그 구간부터 바로 시작
+  function sectionPicker(song, steps, sections) {
+    const secs = sections.map(() => 0);
+    steps.forEach((st) => { if (!st.rest) secs[st.section] += st.sec; });
+    const mult = SPEEDS[settings.speed].mult;
+    const fmt = (sec) => {
+      const t = Math.max(1, Math.round(sec / mult));
+      return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+    };
+
+    const box = document.createElement('div');
+    box.className = 'sections';
+    const head = document.createElement('div');
+    head.className = 'sections-head';
+    head.innerHTML = '<span>구간 바로가기</span><label class="toggle small"><input type="checkbox"><span>이 구간만 치기</span></label>';
+    const only = head.querySelector('input');
+    only.id = 'section-only-' + song.id;
+    only.checked = settings.sectionOnly;
+    only.addEventListener('change', () => { settings.sectionOnly = only.checked; store.set('pt.settings', settings); });
+    box.appendChild(head);
+
+    const list = document.createElement('div');
+    list.className = 'section-list';
+    sections.forEach((name, i) => {
+      const b = document.createElement('button');
+      b.className = 'section-chip';
+      b.innerHTML = '<span class="chip-no"></span><span class="chip-name"></span><span class="chip-time"></span>';
+      b.querySelector('.chip-no').textContent = i + 1;
+      b.querySelector('.chip-name').textContent = name;
+      b.querySelector('.chip-time').textContent = fmt(secs[i]);
+      b.addEventListener('click', () => startSong(song, i, settings.sectionOnly ? i : sections.length - 1));
+      list.appendChild(b);
+    });
+    box.appendChild(list);
+    return box;
   }
 
   document.querySelectorAll('[data-speed]').forEach((b) => {

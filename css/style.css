@@ -150,24 +150,70 @@ button { font: inherit; color: inherit; cursor: pointer; }
   transition: transform 0.1s;
 }
 .song:active { transform: scale(0.98); }
-.song:focus-visible, .song-start select:focus-visible, .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.song-start {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.song:focus-visible, .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sections {
+  display: grid;
+  gap: 8px;
   padding: 0 16px 14px;
-  font-size: 13px;
+}
+.sections-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   color: var(--muted);
 }
-.song-start select {
-  flex: 1;
-  min-width: 0;
+.toggle.small { font-size: 12px; font-weight: 500; letter-spacing: 0; gap: 6px; }
+.toggle.small input { width: 16px; height: 16px; }
+.section-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px;
+}
+.section-chip {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
   padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid #343a48;
+  border: 1px solid #2c3240;
+  border-radius: 10px;
   background: #12151c;
-  color: var(--text);
-  font: inherit;
+  text-align: left;
+  min-width: 0;
+}
+.section-chip:hover { border-color: var(--accent); background: #161b25; }
+.section-chip:active { transform: scale(0.97); }
+.section-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chip-no {
+  grid-row: 1 / 3;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #232937;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.chip-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chip-time {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 .song-credit {
   margin: 0;
@@ -182,6 +228,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .song-meta { align-items: flex-end; text-align: right; flex-shrink: 0; }
 .song-title { font-size: 18px; font-weight: 700; }
 .song-sub, .song-diff { font-size: 12px; color: var(--muted); }
+.song-play { margin-top: 4px; font-size: 13px; font-weight: 700; color: var(--accent); }
 .song-best { color: var(--star); font-weight: 700; font-size: 14px; }
 
 .help {
