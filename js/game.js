@@ -4,7 +4,12 @@
 
   const LANES = 4;
   const VISIBLE_ROWS = 4;
-  const MISS_MARGIN = 0.35; // 타일 밑변이 화면 아래로 이만큼(칸) 내려가면 놓친 것으로 판정
+  // 판정선: 화면 아래에서 LINE 칸 위. 음악은 스크롤이 판정선에 닿는 순간 악보 박자대로 울린다.
+  // 타일을 미리 쳐 두면 그 타일의 음은 제 박자에 울리고, 늦게 치면(MISS_WINDOW 안) 곧바로 울린다.
+  const LINE = 0.75;
+  const MISS_WINDOW = 0.65; // 타일 밑변이 판정선을 이만큼(칸) 지나도록 안 치면 놓친 것
+  const LOOKAHEAD = 0.12; // 초: 이만큼 앞의 음까지 미리 예약
+  const LATE_SKIP = 0.6; // 칸: 늦게 친 타일에서 이보다 오래 지난 음은 건너뜀
   const SPEEDS = {
     slow: { label: '느리게', mult: 0.75 },
     normal: { label: '원곡 속도', mult: 1 },
@@ -78,7 +83,8 @@
       if (!st.rest && st.section > endSection) break;
       if (st.rest) { y += st.rows; continue; }
       tiles.push({
-        y, h: st.rows, lane, section: st.section, events: st.events, rps: st.rows / st.sec,
+        y, h: st.rows, lane, section: st.section, rps: st.rows / st.sec,
+        events: st.events.slice().sort((a, b) => a.o - b.o), evIdx: -1,
         long: st.rows >= 2, played: false, missed: false,
         holdStart: 0, holdProgress: 0, holding: false, voices: null, playedAt: 0,
       });
@@ -91,15 +97,45 @@
   let W = 0, H = 0, dpr = 1, rowH = 0, laneW = 0;
   let chart = null;
   let state = 'menu'; // menu | ready | playing | failed | cleared
-  let scroll = 0, speed = 0, next = 0, score = 0, errors = 0, missed = 0;
+  let scroll = 0, speed = 0, next = 0, cur = 0, score = 0, errors = 0, missed = 0;
+  let pending = []; // 음이 아직 남아 있는(해제된) 타일들
   let failTarget = null, failCell = null, endTimer = 0;
   let flashes = [], popups = [];
   const holds = new Map();
   let lastFrame = 0;
 
+  // 지금 판정선 위를 지나가는 타일의 템포 (쉼표 구간은 앞 타일 템포)
   function targetSpeed() {
-    const t = chart.tiles[Math.min(next, chart.tiles.length - 1)];
-    return t.rps * SPEEDS[settings.speed].mult;
+    const pos = scroll + LINE;
+    const tiles = chart.tiles;
+    while (cur + 1 < tiles.length && tiles[cur + 1].y <= pos + 1e-6) cur++;
+    return tiles[cur].rps * SPEEDS[settings.speed].mult;
+  }
+
+  function unlock(t) {
+    if (t.evIdx >= 0) return;
+    t.evIdx = 0;
+    t.voices = [];
+    pending.push(t);
+  }
+
+  // 해제된 타일의 음 중 판정선에 곧 닿을 음들을 오디오 시계에 예약
+  function scheduleNotes() {
+    if (!pending.length || speed <= 0) return;
+    const pos = scroll + LINE;
+    const horizon = pos + speed * LOOKAHEAD;
+    for (const t of pending) {
+      while (t.evIdx < t.events.length) {
+        const e = t.events[t.evIdx];
+        const p = t.y + e.o * t.h;
+        if (p > horizon) break;
+        t.evIdx++;
+        if (p < pos - LATE_SKIP) continue;
+        const v = Piano.schedule(e.m, Math.max(0, (p - pos) / speed), 0.25 + e.v * 0.75, (e.d * t.h) / speed);
+        if (v) t.voices.push(v);
+      }
+    }
+    pending = pending.filter((t) => t.evIdx < t.events.length);
   }
 
   function resize() {
@@ -116,13 +152,13 @@
   }
 
   // ---------- 게임 흐름 ----------
-  let lastVoices = null;
   function startSong(song, startSection, endSection) {
     Piano.ensure();
+    Piano.stopAll();
     const last = songData(song).sections.length - 1;
     chart = buildChart(song, startSection || 0, endSection === undefined ? last : endSection);
-    lastVoices = null;
-    scroll = 0; speed = 0; next = 0; score = 0; errors = 0; missed = 0;
+    pending = [];
+    scroll = -LINE; speed = 0; next = 0; cur = 0; score = 0; errors = 0; missed = 0;
     failTarget = null; failCell = null; endTimer = 0;
     flashes = []; popups = []; holds.clear();
     state = 'ready';
@@ -136,6 +172,8 @@
     state = 'menu';
     chart = null;
     holds.clear();
+    pending = [];
+    Piano.stopAll();
     ui.result.hidden = true;
     ui.hud.hidden = true;
     ui.menu.hidden = false;
@@ -149,10 +187,8 @@
     t.playedAt = performance.now();
     next++;
     score++;
-    // 앞 타일에서 아직 울리지 않은 음은 버리고(먼저 친 경우) 이 타일의 음을 현재 스크롤 속도에 맞춰 연주
-    Piano.cancelPending(lastVoices);
-    t.voices = Piano.playEvents(t.events, t.h / Math.max(speed, 0.3));
-    lastVoices = t.voices;
+    unlock(t);
+    scheduleNotes();
     if (t.long) {
       t.holding = true;
       t.holdStart = scroll;
@@ -168,7 +204,11 @@
     t.holding = false;
     const bonus = complete ? Math.round(t.h - 1) : Math.floor(t.holdProgress * (t.h - 1));
     if (complete) t.holdProgress = 1;
-    else Piano.release(t.voices);
+    else {
+      // 긴 타일에서 일찍 손을 떼면 건반을 놓은 것처럼 소리를 멈춘다
+      Piano.release(t.voices);
+      t.evIdx = t.events.length;
+    }
     if (bonus > 0) {
       score += bonus;
       popups.push({ x: (t.lane + 0.5) * laneW, y: tileBottom(t) - rowH * 0.5, text: '+' + bonus, born: performance.now() });
@@ -180,9 +220,10 @@
     state = 'failed';
     Piano.failSound();
     for (const id of [...holds.keys()]) finishHold(id, false);
-    Piano.release(lastVoices);
+    pending = [];
+    Piano.stopAll();
     failCell = cell || null;
-    failTarget = tile ? tile.y - 0.6 : null;
+    failTarget = tile ? tile.y - LINE - 0.1 : null;
     if (tile) tile.missed = true;
     endTimer = 1.4;
   }
@@ -194,6 +235,7 @@
     if (state === 'ready') {
       if (lane !== t.lane) return;
       state = 'playing';
+      scroll = t.y - LINE;
       speed = targetSpeed();
       hit(t, pointerId);
       return;
@@ -261,17 +303,23 @@
   function update(dt) {
     if (!chart) return;
     if (state === 'playing') {
-      speed += (targetSpeed() - speed) * Math.min(1, dt * 2.5);
+      speed += (targetSpeed() - speed) * Math.min(1, dt * 8);
       scroll += speed * dt;
 
       for (const [id, t] of holds) {
-        const target = t.y + t.h - 1;
+        const target = t.y + t.h - LINE - 0.25; // 타일 윗변이 판정선 근처에 오면 완료
         t.holdProgress = target > t.holdStart ? Math.min(1, (scroll - t.holdStart) / (target - t.holdStart)) : 1;
         if (t.holdProgress >= 1) finishHold(id, true);
       }
 
+      // 연습 모드에서는 안 친 타일도 판정선에 닿으면 음악이 끊기지 않게 자동으로 울린다
+      if (settings.practice) {
+        for (let i = next; i < chart.tiles.length && chart.tiles[i].y <= scroll + LINE + speed * LOOKAHEAD; i++) unlock(chart.tiles[i]);
+      }
+      scheduleNotes();
+
       const t = chart.tiles[next];
-      if (t && t.y - scroll < -MISS_MARGIN) {
+      if (t && t.y - scroll < LINE - MISS_WINDOW) {
         if (settings.practice) {
           t.missed = true;
           missed++;
@@ -281,13 +329,15 @@
           fail(t);
         }
       }
-      if (state === 'playing' && next >= chart.tiles.length && holds.size === 0) {
+      const lastTile = chart.tiles[chart.tiles.length - 1];
+      if (state === 'playing' && next >= chart.tiles.length && holds.size === 0 &&
+          scroll + LINE >= lastTile.y + lastTile.h) {
         state = 'cleared';
         endTimer = 1.2;
       }
     } else if (state === 'failed' || state === 'cleared') {
       if (failTarget !== null) scroll += (failTarget - scroll) * Math.min(1, dt * 8);
-      else if (state === 'cleared') scroll += speed * dt;
+      else if (state === 'cleared') { scroll += speed * dt; scheduleNotes(); }
       if (endTimer > 0) {
         endTimer -= dt;
         if (endTimer <= 0) finish();
@@ -316,6 +366,26 @@
     g.closePath();
   }
 
+  // 색: 상아빛 악보 종이 위의 흑단 건반, 금박, 클라레
+  const C = {
+    paper: '#f5ecd9',
+    paperEdge: '#e6d6b6',
+    staff: 'rgba(122, 92, 58, 0.13)',
+    lane: 'rgba(138, 108, 73, 0.28)',
+    ebonyTop: '#3a2a20',
+    ebonyBottom: '#120c09',
+    gilt: 'rgba(224, 196, 135, 0.55)',
+    claretTop: '#9a2a3b',
+    claretBottom: '#5e1320',
+    gold: '#b8914b',
+    goldLight: '#e0c487',
+    played: 'rgba(122, 92, 58,',
+    crimson: '#a3192b',
+    crimsonBright: '#d23043',
+  };
+  const FONT_DISPLAY = '"Bodoni Moda", "Didot", "Times New Roman", serif';
+  const FONT_BODY = '"Gowun Batang", "Nanum Myeongjo", "Batang", serif';
+
   function drawTile(t, i, now) {
     const bottom = tileBottom(t);
     const top = bottom - t.h * rowH;
@@ -323,72 +393,98 @@
     const x = t.lane * laneW + 1;
     const w = laneW - 2;
     const pad = 1;
+    const h = t.h * rowH - pad * 2;
 
     if (t.missed) {
-      g.fillStyle = (state === 'failed' && Math.floor(now / 160) % 2) ? '#ff3b4a' : '#c4202d';
-      g.fillRect(x, top + pad, w, t.h * rowH - pad * 2);
+      g.fillStyle = (state === 'failed' && Math.floor(now / 160) % 2) ? C.crimsonBright : C.crimson;
+      g.fillRect(x, top + pad, w, h);
       return;
     }
     if (t.played && !t.holding) {
-      const a = Math.max(0.25, 1 - (now - t.playedAt) / 250);
-      g.fillStyle = 'rgba(30, 36, 48,' + (a * 0.18) + ')';
-      g.fillRect(x, top + pad, w, t.h * rowH - pad * 2);
+      const a = Math.max(0.3, 1 - (now - t.playedAt) / 300);
+      g.fillStyle = C.played + (a * 0.16) + ')';
+      g.fillRect(x, top + pad, w, h);
       if (t.long) {
-        const fillH = (t.h * rowH - pad * 2) * t.holdProgress;
-        g.fillStyle = 'rgba(40, 140, 255, 0.18)';
+        const fillH = h * t.holdProgress;
+        g.fillStyle = 'rgba(184, 145, 75, 0.18)';
         g.fillRect(x, bottom - pad - fillH, w, fillH);
       }
       return;
     }
 
+    const start = i === 0 && state === 'ready';
     const grad = g.createLinearGradient(0, top, 0, bottom);
-    if (i === 0 && state === 'ready') {
-      grad.addColorStop(0, '#1f8fff');
-      grad.addColorStop(1, '#0a5fd1');
-    } else {
-      grad.addColorStop(0, '#2a2f3a');
-      grad.addColorStop(1, '#0b0d12');
-    }
+    grad.addColorStop(0, start ? C.claretTop : C.ebonyTop);
+    grad.addColorStop(1, start ? C.claretBottom : C.ebonyBottom);
     g.fillStyle = grad;
-    g.fillRect(x, top + pad, w, t.h * rowH - pad * 2);
+    g.fillRect(x, top + pad, w, h);
+    // 금박 안쪽 테두리
+    g.strokeStyle = C.gilt;
+    g.lineWidth = 1;
+    g.strokeRect(x + 4.5, top + pad + 4.5, w - 9, h - 9);
 
     if (t.long) {
       const cx = x + w / 2;
-      g.strokeStyle = 'rgba(120, 200, 255, 0.55)';
-      g.lineWidth = 2;
+      g.strokeStyle = 'rgba(224, 196, 135, 0.6)';
+      g.lineWidth = 1.5;
       g.beginPath();
       g.moveTo(cx, bottom - rowH * 0.35);
       g.lineTo(cx, top + rowH * 0.3);
       g.stroke();
       if (t.played) {
-        const fillH = (t.h * rowH - pad * 2) * Math.max(t.holdProgress, 0.12);
+        const fillH = h * Math.max(t.holdProgress, 0.12);
         const fg = g.createLinearGradient(0, bottom - fillH, 0, bottom);
-        fg.addColorStop(0, 'rgba(110, 210, 255, 0.95)');
-        fg.addColorStop(1, 'rgba(40, 140, 255, 0.95)');
+        fg.addColorStop(0, 'rgba(240, 214, 150, 0.95)');
+        fg.addColorStop(1, 'rgba(184, 145, 75, 0.95)');
         g.fillStyle = fg;
         g.fillRect(x, bottom - pad - fillH, w, fillH);
       }
-      g.fillStyle = t.played ? '#ffffff' : 'rgba(150, 210, 255, 0.9)';
+      // 음표 머리 모양 표시
+      g.save();
+      g.translate(cx, bottom - rowH * 0.35);
+      g.rotate(-0.35);
+      g.fillStyle = t.played ? C.paper : C.goldLight;
       g.beginPath();
-      g.arc(cx, bottom - rowH * 0.35, Math.min(laneW, rowH) * 0.12, 0, Math.PI * 2);
+      g.ellipse(0, 0, Math.min(laneW, rowH) * 0.13, Math.min(laneW, rowH) * 0.09, 0, 0, Math.PI * 2);
       g.fill();
+      g.restore();
     }
 
-    if (i === 0 && state === 'ready') {
-      g.fillStyle = '#fff';
+    if (start) {
+      g.fillStyle = C.paper;
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.font = '700 ' + Math.round(laneW * 0.2) + 'px system-ui, sans-serif';
+      g.font = '700 ' + Math.round(laneW * 0.2) + 'px ' + FONT_BODY;
       g.fillText('시작', x + w / 2, bottom - t.h * rowH / 2);
     }
   }
 
   function draw(now) {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = '#f7f8fa';
+    // 종이
+    const paper = g.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.2, W / 2, H * 0.45, Math.max(W, H) * 0.75);
+    paper.addColorStop(0, C.paper);
+    paper.addColorStop(1, C.paperEdge);
+    g.fillStyle = paper;
     g.fillRect(0, 0, W, H);
-    g.strokeStyle = '#d9dde4';
+
+    // 오선: 칸마다 한 묶음, 판과 함께 흘러간다
+    g.strokeStyle = C.staff;
     g.lineWidth = 1;
+    const gap = rowH * 0.07;
+    const off = ((scroll % 1) + 1) % 1;
+    for (let r = -1; r <= VISIBLE_ROWS + 1; r++) {
+      const mid = H - (r - off + 0.5) * rowH;
+      for (let k = -2; k <= 2; k++) {
+        const y = Math.round(mid + k * gap) + 0.5;
+        g.beginPath();
+        g.moveTo(0, y);
+        g.lineTo(W, y);
+        g.stroke();
+      }
+    }
+
+    g.strokeStyle = C.lane;
     for (let l = 1; l < LANES; l++) {
       g.beginPath();
       g.moveTo(Math.round(l * laneW) + 0.5, 0);
@@ -396,6 +492,17 @@
       g.stroke();
     }
     if (!chart) return;
+
+    // 판정선 (금줄)
+    const lineY = Math.round(H - LINE * rowH) + 0.5;
+    g.strokeStyle = 'rgba(184, 145, 75, 0.75)';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(0, lineY - 2);
+    g.lineTo(W, lineY - 2);
+    g.moveTo(0, lineY + 1);
+    g.lineTo(W, lineY + 1);
+    g.stroke();
 
     // 화면에 보이는 타일만 그린다
     const tiles = chart.tiles;
@@ -407,7 +514,7 @@
     }
 
     const drawCell = (c, alpha) => {
-      g.fillStyle = 'rgba(232, 40, 56,' + alpha + ')';
+      g.fillStyle = 'rgba(163, 25, 43,' + alpha + ')';
       const bottom = H - c.row * rowH;
       g.fillRect(c.lane * laneW + 1, bottom - rowH + 1, laneW - 2, rowH - 2);
     };
@@ -418,10 +525,10 @@
     popups = popups.filter((p) => now - p.born < 700);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = '800 ' + Math.round(laneW * 0.22) + 'px system-ui, sans-serif';
+    g.font = 'italic 700 ' + Math.round(laneW * 0.24) + 'px ' + FONT_DISPLAY;
     popups.forEach((p) => {
       const k = (now - p.born) / 700;
-      g.fillStyle = 'rgba(20, 130, 255,' + (1 - k) + ')';
+      g.fillStyle = 'rgba(125, 29, 44,' + (1 - k) + ')';
       g.fillText(p.text, p.x, p.y - k * rowH * 0.6);
     });
   }
@@ -570,6 +677,13 @@
   }
   $('#btn-composer-close').addEventListener('click', () => { composerPanel.hidden = true; });
 
+  function roman(n) {
+    const map = [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+    let out = '';
+    for (const [v, r] of map) while (n >= v) { out += r; n -= v; }
+    return out;
+  }
+
   // 구간 바로가기: 누르면 그 구간부터 바로 시작
   function sectionPicker(song, steps, sections) {
     const secs = sections.map(() => 0);
@@ -597,7 +711,7 @@
       const b = document.createElement('button');
       b.className = 'section-chip';
       b.innerHTML = '<span class="chip-no"></span><span class="chip-name"></span><span class="chip-time"></span>';
-      b.querySelector('.chip-no').textContent = i + 1;
+      b.querySelector('.chip-no').textContent = roman(i + 1);
       b.querySelector('.chip-name').textContent = name;
       b.querySelector('.chip-time').textContent = fmt(secs[i]);
       b.addEventListener('click', () => startSong(song, i, settings.sectionOnly ? i : sections.length - 1));
@@ -618,6 +732,11 @@
     settings.practice = e.target.checked;
     store.set('pt.settings', settings);
   });
+
+  // 테스트용: 주소 끝에 #debug 를 붙이면 상태를 들여다볼 수 있다
+  if (location.hash === '#debug') {
+    window.__pt = { get chart() { return chart; }, get scroll() { return scroll; }, get next() { return next; }, LINE, press };
+  }
 
   window.addEventListener('resize', resize);
   resize();

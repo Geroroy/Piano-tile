@@ -94,34 +94,26 @@
     return v;
   }
 
-  /**
-   * 타일 하나를 연주한다.
-   * events: [{ o, d, m, v }] — o, d 는 타일 길이 대비 비율. span: 타일이 지나가는 데 걸리는 실제 시간(초)
-   * 반환값: 아직 울리지 않은 음을 취소할 때 쓰는 voice 목록
-   */
-  function playEvents(events, span) {
+  /** delay 초 뒤에 음 하나를 울린다 (length: 악보상 길이, 초) */
+  function schedule(midi, delay, vel, length) {
     const c = ensure();
-    if (!c) return [];
-    const now = c.currentTime + 0.005;
-    const handles = [];
-    for (const e of events) {
-      const v = note(e.m, now + e.o * span, 0.25 + e.v * 0.75, e.d * span);
-      if (v) handles.push(v);
-    }
-    return handles;
+    if (!c) return null;
+    return note(midi, c.currentTime + 0.01 + Math.max(0, delay), vel, length);
   }
 
-  /** 아직 시작하지 않은 음만 취소한다 (다음 타일을 먼저 쳤을 때) */
-  function cancelPending(handles) {
-    if (!ctx || !handles) return;
-    const now = ctx.currentTime;
-    for (const v of handles) {
-      if (v.stopped || v.start <= now + 0.01) continue;
-      v.stopped = true;
-      v.out.gain.cancelScheduledValues(0);
-      v.out.gain.setValueAtTime(0, now);
-      v.oscs.forEach((o) => { try { o.stop(); } catch (e) { /* 이미 정지됨 */ } });
-    }
+  /** 울리고 있거나 예약된 모든 음을 멈춘다 */
+  function stopAll() {
+    if (!ctx) return;
+    voices.slice().forEach((v) => {
+      if (v.start > ctx.currentTime + 0.01) {
+        v.stopped = true;
+        v.out.gain.cancelScheduledValues(0);
+        v.out.gain.setValueAtTime(0, ctx.currentTime);
+        v.oscs.forEach((o) => { try { o.stop(); } catch (e) { /* 이미 정지됨 */ } });
+      } else {
+        stopVoice(v, ctx.currentTime);
+      }
+    });
   }
 
   function release(handles) {
@@ -135,5 +127,5 @@
     [36, 37, 42, 43].forEach((m) => note(m, c.currentTime, 0.9));
   }
 
-  global.Piano = { ensure, playEvents, cancelPending, release, failSound };
+  global.Piano = { ensure, schedule, stopAll, release, failSound };
 })(window);

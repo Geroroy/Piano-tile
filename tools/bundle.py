@@ -30,7 +30,9 @@ body = re.search(r'<body>(.*)</body>', html, re.S).group(1)
 body = re.sub(r'<!--.*?-->\s*', '', body, flags=re.S)
 body = re.sub(r'<script src="([^"]+)"></script>',
               lambda m: '<script>\n' + inline_images(read(m.group(1))) + '\n</script>', body)
-head = '<title>Piano Tiles</title>\n<meta name="theme-color" content="#0b0d12">\n<style>\n:root{color-scheme:dark}\n' + read('css/style.css') + '\n</style>\n'
+fonts = ''.join(m + '\n' for m in re.findall(r'<link[^>]+fonts\.(?:googleapis|gstatic)\.com[^>]*>', html))
+head = ('<title>Piano Tiles</title>\n<meta name="theme-color" content="#2a0c12">\n' + fonts
+        + '<style>\n' + read('css/style.css') + '\n</style>\n')
 if fragment:
     out = head + body.strip() + '\n'
 else:
