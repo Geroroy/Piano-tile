@@ -48,7 +48,7 @@
 
   /*
    * MIDI 변환기(tools/midi2chart.js)가 만드는 '시간 기록' 차트
-   *   칸,박,템포:시작.음.길이.세기;...   (시작·길이는 1박 = 96)
+   *   칸,박,템포:시작.음.길이.세기;...   (시작·길이는 1박 = 96, 칸이 0이면 '한 순간 = 한 타일' 모드)
    *   r:칸                               쉼표
    * '//' 뒤는 주석
    */
@@ -61,7 +61,7 @@
         const [head, body] = tok.split(':');
         if (head === 'r') { steps.push({ rest: true, rows: parseFloat(body) }); continue; }
         const [rows, beats, qpm] = head.split(',').map(Number);
-        if (!(rows > 0 && beats > 0 && qpm > 0)) throw new Error('잘못된 타일: "' + tok + '"');
+        if (!(rows >= 0 && beats > 0 && qpm > 0)) throw new Error('잘못된 타일: "' + tok + '"');
         const events = (body ? body.split(';') : []).map((e) => {
           const [o, m, d, v] = e.split('.').map(Number);
           return { o: o / TICKS, m, d: d / TICKS, v: v / 127 };
@@ -78,6 +78,11 @@
    * 쉼표: { rest: true, rows, sec }
    */
   const BASE_RPS = 2.4; // 직접 쓴 표기법 곡의 기본 속도 (칸/초)
+  // '한 순간 = 한 타일' 모드: 화면은 일정한 속도로 흐르고, 타일 높이는 원곡의 다음 음까지 시간에 비례.
+  // 너무 빽빽해 칠 수 없는 곳(ONSET_MIN_ROWS 미만)만 시간을 늘린다.
+  const ONSET_RPS = 3.2;
+  const ONSET_MIN_ROWS = 0.55;
+  const ONSET_MAX_ROWS = 3;
   function songSteps(song) {
     const out = [];
     if (song.chart) {
@@ -87,6 +92,20 @@
         const secPerBeat = 60 / (st.qpm || 120);
         if (st.rest) { out.push({ rest: true, rows: st.rows, sec: null }); continue; }
         while (si + 1 < marks.length && marks[si + 1].tile <= tileNo) si++;
+        if (st.rows === 0) {
+          const full = Math.max(ONSET_MIN_ROWS, st.beats * secPerBeat * ONSET_RPS);
+          const h = Math.min(full, ONSET_MAX_ROWS);
+          out.push({
+            rows: h,
+            sec: h / ONSET_RPS,
+            section: si,
+            // 길이는 원래 음 사이 간격 대비 비율 → 늘어난 만큼 함께 늘어남
+            events: st.events.map((e) => ({ o: 0, d: (e.d / st.beats) * (full / h), m: e.m, v: e.v })),
+          });
+          if (full > h) out.push({ rest: true, rows: full - h, sec: (full - h) / ONSET_RPS });
+          tileNo++;
+          continue;
+        }
         out.push({
           rows: st.rows,
           sec: st.beats * secPerBeat,
@@ -97,7 +116,7 @@
       }
       // 쉼표는 앞 타일과 같은 속도로 흐르게
       out.forEach((s, i) => {
-        if (!s.rest) return;
+        if (!s.rest || s.sec !== null) return;
         const ref = out.slice(0, i).reverse().find((x) => !x.rest) || out.find((x) => !x.rest);
         s.sec = ref ? (s.rows * ref.sec) / ref.rows : s.rows / BASE_RPS;
       });

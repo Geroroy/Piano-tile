@@ -12,8 +12,8 @@
   const LATE_SKIP = 0.6; // 칸: 늦게 친 타일에서 이보다 오래 지난 음은 건너뜀
   const SPEEDS = {
     slow: { label: '느리게', mult: 0.75 },
-    normal: { label: '원곡 속도', mult: 1 },
-    fast: { label: '빠르게', mult: 1.3 },
+    normal: { label: '보통', mult: 1 },
+    fast: { label: '빠르게', mult: 1.25 },
   };
   const KEYS = { d: 0, f: 1, j: 2, k: 3 };
 
@@ -131,7 +131,7 @@
         if (p > horizon) break;
         t.evIdx++;
         if (p < pos - LATE_SKIP) continue;
-        const v = Piano.schedule(e.m, Math.max(0, (p - pos) / speed), 0.25 + e.v * 0.75, (e.d * t.h) / speed);
+        const v = Piano.schedule(e.m, Math.max(0, (p - pos) / speed), e.v, (e.d * t.h) / speed);
         if (v) t.voices.push(v);
       }
     }
@@ -684,7 +684,7 @@
         '<span class="song-meta"><span class="song-best"></span><span class="song-diff"></span></span></button>';
       li.querySelector('.song-title').textContent = song.title;
       li.querySelector('.song-sub').textContent =
-        song.composer + ' · 타일 ' + tileCount + '개 · 약 ' + Math.max(1, Math.round(minutes)) + '분';
+        song.composer + ' · 타일 ' + tileCount + '개 · 약\u00a0' + Math.max(1, Math.round(minutes)) + '분';
       li.querySelector('.song-diff').textContent = '난이도 ' + '●'.repeat(song.difficulty || 1) + '○'.repeat(5 - (song.difficulty || 1));
       li.querySelector('.song-best').textContent = best
         ? '★'.repeat(best.stars) + '☆'.repeat(3 - best.stars) + ' ' + best.score
@@ -817,6 +817,21 @@
   if (location.hash === '#debug') {
     window.__pt = { get chart() { return chart; }, get scroll() { return scroll; }, get next() { return next; }, LINE, press };
   }
+
+  // 스타인웨이 샘플 불러오기 (메뉴에 진행 상황 표시)
+  const sampleStatus = $('#sample-status');
+  Piano.loadSamples('samples/steinway/', (sm) => {
+    if (sm.state === 'loading') {
+      sampleStatus.textContent = '스타인웨이 그랜드 피아노 불러오는 중 · ' + sm.loaded + ' / ' + (sm.total || '…');
+      sampleStatus.dataset.state = 'loading';
+    } else if (sm.state === 'ready') {
+      sampleStatus.textContent = '스타인웨이 그랜드 피아노 준비 완료';
+      sampleStatus.dataset.state = 'ready';
+    } else {
+      sampleStatus.textContent = '피아노 샘플을 불러오지 못해 합성음으로 연주합니다';
+      sampleStatus.dataset.state = 'failed';
+    }
+  });
 
   window.addEventListener('resize', resize);
   resize();

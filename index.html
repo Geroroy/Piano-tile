@@ -27,25 +27,28 @@
         <p class="imprint">Salon de Musique</p>
         <h1>Piano Tiles</h1>
         <div class="flourish" aria-hidden="true"><span></span>❦<span></span></div>
-        <p class="tagline">검은 타일을 칠 때마다 원곡이 이어집니다</p>
+        <p class="tagline">검은 건반 하나가 악보의 한 순간입니다</p>
       </header>
 
       <div class="options">
         <div class="seg" role="group" aria-label="속도">
           <button data-speed="slow">느리게</button>
-          <button data-speed="normal">원곡 속도</button>
+          <button data-speed="normal">보통</button>
           <button data-speed="fast">빠르게</button>
         </div>
         <label class="toggle">
           <input type="checkbox" id="opt-practice">
           <span>연습 모드 (틀려도 계속)</span>
         </label>
+        <p id="sample-status" class="sample-status" data-state="loading" aria-live="polite">스타인웨이 그랜드 피아노 불러오는 중</p>
       </div>
 
       <ul id="song-list"></ul>
 
       <footer class="help">
-        탭 / 클릭 또는 키보드 <kbd>D</kbd><kbd>F</kbd><kbd>J</kbd><kbd>K</kbd> · 긴 타일은 누르고 있기 · <kbd>Esc</kbd> 메뉴
+        탭 / 클릭 또는 키보드 <kbd>D</kbd><kbd>F</kbd><kbd>J</kbd><kbd>K</kbd> · 긴 타일은 누르고 있기 · <kbd>Esc</kbd> 메뉴<br>
+        타일 하나 = 악보의 한 순간(화음이면 그 화음). 너무 빠른 음형은 칠 수 있게 늘려서 연주합니다.<br>
+        피아노 음원: Splendid Grand Piano — Akai의 스타인웨이 샘플(퍼블릭 도메인), SFZ 매핑 sfzinstruments
       </footer>
     </section>
 

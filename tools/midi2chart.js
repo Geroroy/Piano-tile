@@ -15,6 +15,8 @@
  *   --sections "1:서주|8:제1주제"   마디 번호:구간 이름 (메뉴의 시작 구간 선택과 화면 표시에 사용)
  *   --credit "..."    출처 표기
  *   --difficulty N    1~5
+ *   --per-onset       타일 1개 = 악보에서 동시에 시작하는 음 한 묶음 (터치 하나가 정확히 한 순간의 음).
+ *                     타일 높이는 게임이 원곡 박자로 정하고, 너무 빽빽한 곳만 칠 수 있게 늘린다.
  *   --composer-id ID  composers/ 폴더의 작곡가 정보 ID (예: chopin)
  */
 'use strict';
@@ -35,6 +37,7 @@ function parseArgs(argv) {
     else if (a === '--sections') opts.sections = v();
     else if (a === '--credit') opts.credit = v();
     else if (a === '--composer-id') opts.composerId = v();
+    else if (a === '--per-onset') opts.perOnset = true;
     else if (a === '--difficulty') opts.difficulty = parseInt(v(), 10);
     else if (a === '--id') opts.id = v();
     else if (a === '--title') opts.title = v();
@@ -149,7 +152,24 @@ function convert(opts) {
   const tiles = []; // { start, beats, rows, qpm } 또는 { rest:true, rows }
   const barFirstTile = [];
   let ni = 0;
-  for (const bar of bars) {
+  if (opts.perOnset) {
+    // 같은 순간에 시작하는 음들을 한 타일로. rows=0 은 '게임이 높이를 정함'
+    for (let i = 0; i < notes.length;) {
+      let j = i;
+      while (j < notes.length && Math.abs(notes[j].s - notes[i].s) < 1e-6) j++;
+      const s = notes[i].s;
+      const group = notes.slice(i, j);
+      const nextS = j < notes.length ? notes[j].s : s + Math.max(1, ...group.map((n) => n.e - s));
+      tiles.push({ start: s, beats: r6(nextS - s), rows: 0, qpm: qpmAt(s), notes: group });
+      i = j;
+    }
+    let ti = 0;
+    for (const bar of bars) {
+      while (ti < tiles.length && tiles[ti].start < bar.start - 1e-6) ti++;
+      barFirstTile.push(ti);
+    }
+  }
+  for (const bar of opts.perOnset ? [] : bars) {
     const qpm = qpmAt(bar.start);
     let unit = 1, best = Infinity;
     for (const u of UNITS) {
