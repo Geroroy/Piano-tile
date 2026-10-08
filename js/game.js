@@ -149,6 +149,8 @@
     canvas.height = Math.round(H * dpr);
     rowH = H / VISIBLE_ROWS;
     laneW = W / LANES;
+    boardCanvas = null;
+    keyCache.clear();
   }
 
   // ---------- 게임 흐름 ----------
@@ -366,66 +368,171 @@
     g.closePath();
   }
 
-  // 색: 상아빛 악보 종이 위의 흑단 건반, 금박, 클라레
-  const C = {
-    paper: '#f5ecd9',
-    paperEdge: '#e6d6b6',
-    staff: 'rgba(122, 92, 58, 0.13)',
-    lane: 'rgba(138, 108, 73, 0.28)',
-    ebonyTop: '#3a2a20',
-    ebonyBottom: '#120c09',
-    gilt: 'rgba(224, 196, 135, 0.55)',
-    claretTop: '#9a2a3b',
-    claretBottom: '#5e1320',
-    gold: '#b8914b',
-    goldLight: '#e0c487',
-    played: 'rgba(122, 92, 58,',
-    crimson: '#a3192b',
-    crimsonBright: '#d23043',
-  };
+  // ---------- 그리기: 진짜 건반 질감 (완전한 무채색) + 노랑 강조 ----------
+  const YELLOW = '#f5c400';
   const FONT_DISPLAY = '"Bodoni Moda", "Didot", "Times New Roman", serif';
   const FONT_BODY = '"Gowun Batang", "Nanum Myeongjo", "Batang", serif';
+
+  // 회색조 잡음: 상아·옻칠의 미세한 결
+  function addGrain(cx, w, h, amount, streak) {
+    const img = cx.getImageData(0, 0, w, h);
+    const d = img.data;
+    const col = new Float32Array(w);
+    if (streak) for (let x = 0; x < w; x++) col[x] = (Math.random() - 0.5) * streak; // 세로 결
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const n = (Math.random() - 0.5) * amount + col[x];
+        d[i] += n; d[i + 1] += n; d[i + 2] += n;
+      }
+    }
+    cx.putImageData(img, 0, 0);
+  }
+
+  // 흰 건반 판 (화면 크기가 바뀔 때만 다시 그림)
+  let boardCanvas = null;
+  function buildBoard() {
+    const pw = Math.round(W * dpr), ph = Math.round(H * dpr);
+    const c = document.createElement('canvas');
+    c.width = pw; c.height = ph;
+    const x = c.getContext('2d');
+    const kw = pw / LANES;
+    for (let l = 0; l < LANES; l++) {
+      const kx = Math.round(l * kw), kx2 = Math.round((l + 1) * kw);
+      // 상아 같은 은은한 광택: 가운데 밝고 가장자리 살짝 어둡게
+      const lg = x.createLinearGradient(kx, 0, kx2, 0);
+      lg.addColorStop(0, '#e4e4e4');
+      lg.addColorStop(0.12, '#f4f4f4');
+      lg.addColorStop(0.55, '#fbfbfb');
+      lg.addColorStop(0.9, '#f1f1f1');
+      lg.addColorStop(1, '#dedede');
+      x.fillStyle = lg;
+      x.fillRect(kx, 0, kx2 - kx, ph);
+    }
+    // 위에서 아래로 빛이 떨어지는 느낌
+    const vg = x.createLinearGradient(0, 0, 0, ph);
+    vg.addColorStop(0, 'rgba(0,0,0,0.07)');
+    vg.addColorStop(0.35, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(255,255,255,0.15)');
+    x.fillStyle = vg;
+    x.fillRect(0, 0, pw, ph);
+    addGrain(x, pw, ph, 5, 4);
+    // 건반 사이 틈
+    for (let l = 1; l < LANES; l++) {
+      const gx = Math.round(l * kw);
+      x.fillStyle = '#7a7a7a';
+      x.fillRect(gx - Math.max(1, Math.round(dpr)), 0, Math.max(1, Math.round(dpr)), ph);
+      const sg = x.createLinearGradient(gx, 0, gx + 5 * dpr, 0);
+      sg.addColorStop(0, 'rgba(0,0,0,0.16)');
+      sg.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = sg;
+      x.fillRect(gx, 0, 5 * dpr, ph);
+    }
+    boardCanvas = c;
+  }
+
+  // 검은 건반 (크기별로 한 번만 그려 둠)
+  const keyCache = new Map();
+  function blackKey(w, h) {
+    const pw = Math.max(4, Math.round(w * dpr)), ph = Math.max(4, Math.round(h * dpr));
+    const k = pw + 'x' + ph;
+    if (keyCache.has(k)) return keyCache.get(k);
+    const c = document.createElement('canvas');
+    c.width = pw; c.height = ph;
+    const x = c.getContext('2d');
+    const r = 3 * dpr;
+    const bev = Math.max(2, Math.round(pw * 0.07));
+    const lip = Math.min(Math.round(12 * dpr), Math.round(ph * 0.08));
+    // 몸체 (아래 모서리 둥글게)
+    x.beginPath();
+    x.moveTo(0, 0);
+    x.lineTo(pw, 0);
+    x.lineTo(pw, ph - r);
+    x.quadraticCurveTo(pw, ph, pw - r, ph);
+    x.lineTo(r, ph);
+    x.quadraticCurveTo(0, ph, 0, ph - r);
+    x.closePath();
+    x.fillStyle = '#060606';
+    x.fill();
+    x.save();
+    x.clip();
+    // 양옆 경사면
+    const lb = x.createLinearGradient(0, 0, bev, 0);
+    lb.addColorStop(0, '#3a3a3a');
+    lb.addColorStop(1, '#141414');
+    x.fillStyle = lb;
+    x.fillRect(0, 0, bev, ph);
+    const rb = x.createLinearGradient(pw - bev, 0, pw, 0);
+    rb.addColorStop(0, '#0e0e0e');
+    rb.addColorStop(1, '#000');
+    x.fillStyle = rb;
+    x.fillRect(pw - bev, 0, bev, ph);
+    // 윗면: 옻칠한 흑단
+    const top = x.createLinearGradient(0, 0, 0, ph - lip);
+    top.addColorStop(0, '#202020');
+    top.addColorStop(0.5, '#111');
+    top.addColorStop(1, '#070707');
+    x.fillStyle = top;
+    x.fillRect(bev, 0, pw - bev * 2, ph - lip);
+    // 광택 반사 줄기
+    const gl = x.createLinearGradient(bev, 0, pw - bev, 0);
+    gl.addColorStop(0, 'rgba(255,255,255,0)');
+    gl.addColorStop(0.18, 'rgba(255,255,255,0.10)');
+    gl.addColorStop(0.3, 'rgba(255,255,255,0.03)');
+    gl.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = gl;
+    x.fillRect(bev, 0, pw - bev * 2, ph - lip);
+    // 앞쪽 턱 (연주자 쪽 끝)
+    const lg = x.createLinearGradient(0, ph - lip, 0, ph);
+    lg.addColorStop(0, '#2c2c2c');
+    lg.addColorStop(0.35, '#151515');
+    lg.addColorStop(1, '#000');
+    x.fillStyle = lg;
+    x.fillRect(0, ph - lip, pw, lip);
+    // 윗면 가장자리 하이라이트
+    x.fillStyle = 'rgba(255,255,255,0.18)';
+    x.fillRect(bev, ph - lip - Math.max(1, Math.round(dpr)), pw - bev * 2, Math.max(1, Math.round(dpr)));
+    x.restore();
+    addGrain(x, pw, ph, 7, 3);
+    keyCache.set(k, c);
+    if (keyCache.size > 64) keyCache.delete(keyCache.keys().next().value);
+    return c;
+  }
 
   function drawTile(t, i, now) {
     const bottom = tileBottom(t);
     const top = bottom - t.h * rowH;
     if (top > H || bottom < 0) return;
-    const x = t.lane * laneW + 1;
-    const w = laneW - 2;
+    const x = t.lane * laneW + 2;
+    const w = laneW - 4;
     const pad = 1;
     const h = t.h * rowH - pad * 2;
 
     if (t.missed) {
-      g.fillStyle = (state === 'failed' && Math.floor(now / 160) % 2) ? C.crimsonBright : C.crimson;
+      g.fillStyle = (state === 'failed' && Math.floor(now / 160) % 2) ? YELLOW : '#111';
       g.fillRect(x, top + pad, w, h);
       return;
     }
     if (t.played && !t.holding) {
-      const a = Math.max(0.3, 1 - (now - t.playedAt) / 300);
-      g.fillStyle = C.played + (a * 0.16) + ')';
-      g.fillRect(x, top + pad, w, h);
-      if (t.long) {
+      // 눌린 건반: 옅은 그림자만 남는다
+      const a = Math.max(0.12, 0.5 - (now - t.playedAt) / 600);
+      g.globalAlpha = a;
+      g.drawImage(blackKey(w, h), x, top + pad, w, h);
+      g.globalAlpha = 1;
+      if (t.long && t.holdProgress > 0) {
         const fillH = h * t.holdProgress;
-        g.fillStyle = 'rgba(184, 145, 75, 0.18)';
+        g.fillStyle = 'rgba(245, 196, 0, 0.22)';
         g.fillRect(x, bottom - pad - fillH, w, fillH);
       }
       return;
     }
 
+    g.drawImage(blackKey(w, h), x, top + pad, w, h);
     const start = i === 0 && state === 'ready';
-    const grad = g.createLinearGradient(0, top, 0, bottom);
-    grad.addColorStop(0, start ? C.claretTop : C.ebonyTop);
-    grad.addColorStop(1, start ? C.claretBottom : C.ebonyBottom);
-    g.fillStyle = grad;
-    g.fillRect(x, top + pad, w, h);
-    // 금박 안쪽 테두리
-    g.strokeStyle = C.gilt;
-    g.lineWidth = 1;
-    g.strokeRect(x + 4.5, top + pad + 4.5, w - 9, h - 9);
 
     if (t.long) {
       const cx = x + w / 2;
-      g.strokeStyle = 'rgba(224, 196, 135, 0.6)';
+      g.strokeStyle = 'rgba(245, 196, 0, 0.8)';
       g.lineWidth = 1.5;
       g.beginPath();
       g.moveTo(cx, bottom - rowH * 0.35);
@@ -433,17 +540,13 @@
       g.stroke();
       if (t.played) {
         const fillH = h * Math.max(t.holdProgress, 0.12);
-        const fg = g.createLinearGradient(0, bottom - fillH, 0, bottom);
-        fg.addColorStop(0, 'rgba(240, 214, 150, 0.95)');
-        fg.addColorStop(1, 'rgba(184, 145, 75, 0.95)');
-        g.fillStyle = fg;
+        g.fillStyle = 'rgba(245, 196, 0, 0.85)';
         g.fillRect(x, bottom - pad - fillH, w, fillH);
       }
-      // 음표 머리 모양 표시
       g.save();
       g.translate(cx, bottom - rowH * 0.35);
       g.rotate(-0.35);
-      g.fillStyle = t.played ? C.paper : C.goldLight;
+      g.fillStyle = t.played ? '#111' : YELLOW;
       g.beginPath();
       g.ellipse(0, 0, Math.min(laneW, rowH) * 0.13, Math.min(laneW, rowH) * 0.09, 0, 0, Math.PI * 2);
       g.fill();
@@ -451,7 +554,7 @@
     }
 
     if (start) {
-      g.fillStyle = C.paper;
+      g.fillStyle = YELLOW;
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       g.font = '700 ' + Math.round(laneW * 0.2) + 'px ' + FONT_BODY;
@@ -461,48 +564,16 @@
 
   function draw(now) {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // 종이
-    const paper = g.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.2, W / 2, H * 0.45, Math.max(W, H) * 0.75);
-    paper.addColorStop(0, C.paper);
-    paper.addColorStop(1, C.paperEdge);
-    g.fillStyle = paper;
-    g.fillRect(0, 0, W, H);
-
-    // 오선: 칸마다 한 묶음, 판과 함께 흘러간다
-    g.strokeStyle = C.staff;
-    g.lineWidth = 1;
-    const gap = rowH * 0.07;
-    const off = ((scroll % 1) + 1) % 1;
-    for (let r = -1; r <= VISIBLE_ROWS + 1; r++) {
-      const mid = H - (r - off + 0.5) * rowH;
-      for (let k = -2; k <= 2; k++) {
-        const y = Math.round(mid + k * gap) + 0.5;
-        g.beginPath();
-        g.moveTo(0, y);
-        g.lineTo(W, y);
-        g.stroke();
-      }
-    }
-
-    g.strokeStyle = C.lane;
-    for (let l = 1; l < LANES; l++) {
-      g.beginPath();
-      g.moveTo(Math.round(l * laneW) + 0.5, 0);
-      g.lineTo(Math.round(l * laneW) + 0.5, H);
-      g.stroke();
-    }
+    if (!boardCanvas || boardCanvas.width !== Math.round(W * dpr) || boardCanvas.height !== Math.round(H * dpr)) buildBoard();
+    g.drawImage(boardCanvas, 0, 0, W, H);
     if (!chart) return;
 
-    // 판정선 (금줄)
-    const lineY = Math.round(H - LINE * rowH) + 0.5;
-    g.strokeStyle = 'rgba(184, 145, 75, 0.75)';
-    g.lineWidth = 1;
-    g.beginPath();
-    g.moveTo(0, lineY - 2);
-    g.lineTo(W, lineY - 2);
-    g.moveTo(0, lineY + 1);
-    g.lineTo(W, lineY + 1);
-    g.stroke();
+    // 판정선 (노랑)
+    const lineY = Math.round(H - LINE * rowH);
+    g.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    g.fillRect(0, lineY + 2, W, 1);
+    g.fillStyle = YELLOW;
+    g.fillRect(0, lineY - 1, W, 3);
 
     // 화면에 보이는 타일만 그린다
     const tiles = chart.tiles;
@@ -514,22 +585,31 @@
     }
 
     const drawCell = (c, alpha) => {
-      g.fillStyle = 'rgba(163, 25, 43,' + alpha + ')';
+      g.fillStyle = 'rgba(245, 196, 0,' + alpha + ')';
       const bottom = H - c.row * rowH;
-      g.fillRect(c.lane * laneW + 1, bottom - rowH + 1, laneW - 2, rowH - 2);
+      g.fillRect(c.lane * laneW + 2, bottom - rowH + 1, laneW - 4, rowH - 2);
+      g.strokeStyle = 'rgba(0, 0, 0,' + alpha + ')';
+      g.lineWidth = 2;
+      g.strokeRect(c.lane * laneW + 3, bottom - rowH + 2, laneW - 6, rowH - 4);
     };
     flashes = flashes.filter((c) => now - c.born < 300);
-    flashes.forEach((c) => drawCell(c, 0.6 * (1 - (now - c.born) / 300)));
-    if (failCell) drawCell(failCell, Math.floor(now / 160) % 2 ? 0.9 : 0.6);
+    flashes.forEach((c) => drawCell(c, 0.7 * (1 - (now - c.born) / 300)));
+    if (failCell) drawCell(failCell, Math.floor(now / 160) % 2 ? 0.95 : 0.6);
 
     popups = popups.filter((p) => now - p.born < 700);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.font = 'italic 700 ' + Math.round(laneW * 0.24) + 'px ' + FONT_DISPLAY;
+    g.lineWidth = 4;
     popups.forEach((p) => {
       const k = (now - p.born) / 700;
-      g.fillStyle = 'rgba(125, 29, 44,' + (1 - k) + ')';
-      g.fillText(p.text, p.x, p.y - k * rowH * 0.6);
+      const y = p.y - k * rowH * 0.6;
+      g.globalAlpha = 1 - k;
+      g.strokeStyle = '#111';
+      g.strokeText(p.text, p.x, y);
+      g.fillStyle = YELLOW;
+      g.fillText(p.text, p.x, y);
+      g.globalAlpha = 1;
     });
   }
 
