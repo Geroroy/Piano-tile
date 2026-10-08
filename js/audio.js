@@ -227,10 +227,37 @@
     handles.forEach((v) => stopVoice(v, ctx.currentTime + 0.05));
   }
 
-  function failSound() {
+  // 건반을 잘못 내리친 소리
+  // gameover: 저음역 불협화 클러스터를 손바닥으로 쾅 친 소리 + 둔탁한 타건 충격음
+  // slip: 연습 모드용, 반음 어긋난 두 음을 가볍게
+  function failSound(kind) {
     const c = ensure();
     if (!c) return;
-    [36, 37, 42, 43].forEach((m) => schedule(m, 0, 0.75));
+    if (kind === 'slip') {
+      schedule(73, 0, 0.42, 0.25);
+      schedule(74, 0.012, 0.38, 0.25);
+      return;
+    }
+    // 손바닥이 닿는 순서대로 몇 ms씩 어긋나게
+    const cluster = [[40, 0], [41, 0.006], [46, 0.011], [47, 0.004], [52, 0.016], [53, 0.009]];
+    cluster.forEach(([m, d]) => schedule(m, d, 1, 1.4));
+    schedule(64, 0.03, 0.55, 0.6); // 위에서 덜컥 걸린 음 하나
+    // 둔탁한 충격음: 짧은 잡음을 낮게 걸러서
+    const len = Math.floor(c.sampleRate * 0.18);
+    const buf = c.createBuffer(1, len, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 4);
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 220;
+    const g = c.createGain();
+    g.gain.value = 0.9;
+    src.connect(lp);
+    lp.connect(g);
+    g.connect(bus);
+    src.start(c.currentTime + 0.01);
   }
 
   global.Piano = { ensure, schedule, stopAll, release, failSound, loadSamples, sampler };

@@ -220,10 +220,11 @@
 
   function fail(tile, cell) {
     state = 'failed';
-    Piano.failSound();
     for (const id of [...holds.keys()]) finishHold(id, false);
     pending = [];
+    // 곡을 먼저 멈추고 나서 '잘못 친' 소리를 낸다 (반대로 하면 효과음까지 꺼진다)
     Piano.stopAll();
+    Piano.failSound('gameover');
     failCell = cell || null;
     failTarget = tile ? tile.y - LINE - 0.1 : null;
     if (tile) tile.missed = true;
@@ -255,6 +256,7 @@
     const cell = { lane, row: Math.floor((H - yPx) / rowH), born: performance.now() };
     if (settings.practice) {
       errors++;
+      Piano.failSound('slip');
       flashes.push(cell);
       updateHud();
     } else {
