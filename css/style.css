@@ -282,6 +282,37 @@ kbd {
   letter-spacing: 0.08em;
   color: var(--star);
 }
+.portrait { margin: 0 0 18px; display: grid; gap: 6px; justify-items: start; }
+.portrait-frame {
+  position: relative;
+  width: 132px;
+  aspect-ratio: 4 / 5;
+  max-width: 100%;
+  padding: 6px;
+  border-radius: 6px;
+  background: linear-gradient(145deg, #b8925a, #6e5330);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.portrait-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 3px;
+  filter: sepia(0.15);
+}
+.portrait-initials {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  background: radial-gradient(circle at 50% 35%, #2a2f3b, #12151c);
+  font: italic 600 32px/1 Georgia, "Times New Roman", serif;
+  letter-spacing: 0.08em;
+  color: #d9bd88;
+}
+.portrait figcaption { font-size: 11px; color: var(--muted); }
 #composer h2 { margin: 6px 0 2px; font-size: 30px; text-wrap: balance; }
 .composer-original { margin: 0 0 18px; color: var(--muted); font-size: 14px; font-style: italic; }
 #composer-bio p { margin: 0 0 12px; font-size: 15px; line-height: 1.7; color: #d4d9e2; }

@@ -527,6 +527,19 @@
   const composerPanel = $('#composer');
   function showComposer(c) {
     $('#composer-meta').textContent = [c.years, c.origin, c.era].filter(Boolean).join(' · ');
+    const img = $('#composer-img');
+    const initials = $('#composer-initials');
+    const caption = $('#composer-caption');
+    initials.textContent = c.initials || c.name.slice(0, 1);
+    initials.hidden = false;
+    img.hidden = true;
+    caption.textContent = '';
+    if (c.portrait) {
+      img.onload = () => { img.hidden = false; initials.hidden = true; caption.textContent = c.portraitCaption || ''; };
+      img.onerror = () => { img.hidden = true; initials.hidden = false; };
+      img.alt = c.name + ' 초상';
+      img.src = c.portrait;
+    }
     $('#composer-name').textContent = c.name;
     $('#composer-original').textContent = c.original || '';
     const bio = $('#composer-bio');
