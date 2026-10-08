@@ -96,8 +96,9 @@
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
-    W = Math.min(window.innerWidth, 520);
-    H = window.innerHeight;
+    const stage = canvas.parentElement;
+    W = Math.min(stage.clientWidth || window.innerWidth, 520);
+    H = stage.clientHeight || window.innerHeight;
     canvas.style.width = W + 'px';
     canvas.style.height = H + 'px';
     canvas.width = Math.round(W * dpr);
