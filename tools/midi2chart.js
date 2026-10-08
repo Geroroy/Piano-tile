@@ -117,6 +117,43 @@ const TICKS = 96; // 차트에 저장하는 시간 해상도: 4분음표 1박 = 
  * - 새 마디가 베이스 음으로 시작하면 다시 밟음
  * - 한 마디 넘게 다시 밟지 않았으면 다음 음에서 다시 밟음
  */
+/*
+ * 트릴·꾸밈음·아주 빠른 음계: 음 간격이 ORN_GAP 초보다 짧게 이어지는 음들은 한 타일에 묶어
+ * 원래 속도로 울리게 한다 (하나씩 늘려 치면 떨림이 아니라 또박또박한 소리가 됨).
+ * 긴 패시지는 ORN_MAX_NOTES 음 / ORN_MAX_SEC 초 단위로 나눠 여러 번 치게 한다.
+ */
+const ORN_GAP = 0.085;
+const ORN_MAX_NOTES = 8;
+const ORN_MAX_SEC = 0.45;
+function mergeOrnaments(tiles) {
+  const secOf = (t) => (t.beats * 60) / t.qpm;
+  const out = [];
+  for (let i = 0; i < tiles.length;) {
+    let j = i;
+    while (j + 1 < tiles.length && secOf(tiles[j]) < ORN_GAP) j++;
+    if (j - i + 1 < 3) { out.push(tiles[i]); i++; continue; }
+    // i..j 가 빠른 연속 음 (j 는 마지막 음)
+    for (let k = i; k <= j;) {
+      let e = k, sec = 0;
+      while (e + 1 <= j && e - k + 1 < ORN_MAX_NOTES && sec + secOf(tiles[e]) < ORN_MAX_SEC) { sec += secOf(tiles[e]); e++; }
+      const group = tiles.slice(k, e + 1);
+      const last = group[group.length - 1];
+      out.push({
+        start: group[0].start,
+        beats: r6(last.start + last.beats - group[0].start),
+        rows: 0,
+        qpm: group[0].qpm,
+        notes: group.flatMap((g) => g.notes),
+        run: true,
+      });
+      k = e + 1;
+    }
+    i = j + 1;
+  }
+  tiles.length = 0;
+  out.forEach((t) => tiles.push(t));
+}
+
 function markPedal(tiles, bars) {
   let bi = 0, curBar = -1, lastChange = -Infinity;
   let held = new Set(); // 지금 페달 아래 울리는 음이름들
@@ -197,6 +234,7 @@ function convert(opts) {
       tiles.push({ start: s, beats: r6(nextS - s), rows: 0, qpm: qpmAt(s), notes: group });
       i = j;
     }
+    mergeOrnaments(tiles);
     let ti = 0;
     for (const bar of bars) {
       while (ti < tiles.length && tiles[ti].start < bar.start - 1e-6) ti++;

@@ -102,7 +102,8 @@
             section: si,
             pedal: st.pedal,
             // 길이는 원래 음 사이 간격 대비 비율 → 늘어난 만큼 함께 늘어남
-            events: st.events.map((e) => ({ o: 0, d: (e.d / st.beats) * (full / h), m: e.m, v: e.v })),
+            // 시작·길이는 원래 음 사이 간격 대비 비율 → 늘어난 만큼 함께 늘어남 (꾸밈음 타일은 o>0)
+            events: st.events.map((e) => ({ o: (e.o / st.beats) * (full / h), d: (e.d / st.beats) * (full / h), m: e.m, v: e.v })),
           });
           if (full > h) out.push({ rest: true, rows: full - h, sec: (full - h) / ONSET_RPS });
           tileNo++;
@@ -163,11 +164,12 @@
       const { st, y: ty } = tiles[i];
       const nextY = i + 1 < tiles.length ? tiles[i + 1].y : y;
       st.events.forEach((e) => {
-        let end = ty + e.d * st.rows;
+        const start = ty + e.o * st.rows;
+        let end = start + e.d * st.rows;
         if (end >= nextY - 0.25 * (nextY - ty)) end = Math.max(end, nextY + LEGATO_ROWS);
         if (usesPedal) end = Math.max(end, nextChange + PEDAL_LIFT_ROWS);
-        end = Math.min(end, ty + Math.max(e.d * st.rows, MAX_RING_ROWS));
-        e.d = (end - ty) / st.rows;
+        end = Math.min(end, start + Math.max(e.d * st.rows, MAX_RING_ROWS));
+        e.d = (end - start) / st.rows;
       });
       if (st.pedal) nextChange = ty;
     }

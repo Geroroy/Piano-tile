@@ -87,6 +87,7 @@
       tiles.push({
         y, h: st.rows, lane, section: st.section, rps: st.rows / st.sec,
         events: st.events.slice().sort((a, b) => a.o - b.o), evIdx: -1,
+        run: st.events.some((e) => e.o > 1e-6), // 트릴·꾸밈음처럼 한 번에 여러 음이 흘러나오는 타일
         long: st.rows >= 2, played: false, missed: false,
         holdStart: 0, holdProgress: 0, holding: false, voices: null, playedAt: 0,
       });
@@ -256,10 +257,9 @@
       const b = tileBottom(p);
       if (yPx <= b + 4 && yPx >= b - p.h * rowH - 4) return;
     }
-    const cell = { lane, row: Math.floor((H - yPx) / rowH), born: performance.now() };
+    const cell = { lane, x: (lane + 0.5) * laneW, y: yPx, born: performance.now() };
     if (settings.practice) {
       errors++;
-      Piano.failSound('slip');
       flashes.push(cell);
       updateHud();
     } else {
@@ -514,8 +514,14 @@
     const h = t.h * rowH - pad * 2;
 
     if (t.missed) {
-      g.fillStyle = (state === 'failed' && Math.floor(now / 160) % 2) ? YELLOW : '#111';
-      g.fillRect(x, top + pad, w, h);
+      g.drawImage(blackKey(w, h), x, top + pad, w, h);
+      if (state === 'failed') {
+        g.save();
+        g.globalCompositeOperation = 'screen';
+        g.fillStyle = 'rgba(206, 38, 46,' + (0.45 + 0.2 * Math.sin(now / 180)) + ')';
+        g.fillRect(x, top + pad, w, h);
+        g.restore();
+      }
       return;
     }
     if (t.played && !t.holding) {
@@ -558,6 +564,21 @@
       g.restore();
     }
 
+    if (t.run && !t.played) {
+      // 트릴 기호처럼 작은 물결
+      const cx = x + w / 2, cy = bottom - Math.min(h * 0.5, rowH * 0.32);
+      const a = Math.min(laneW * 0.09, 9);
+      g.strokeStyle = YELLOW;
+      g.lineWidth = 2;
+      g.beginPath();
+      for (let k = 0; k <= 24; k++) {
+        const px = cx - a * 2 + (a * 4 * k) / 24;
+        const py = cy + Math.sin((k / 24) * Math.PI * 4) * a * 0.45;
+        if (k === 0) g.moveTo(px, py); else g.lineTo(px, py);
+      }
+      g.stroke();
+    }
+
     if (start) {
       g.fillStyle = YELLOW;
       g.textAlign = 'center';
@@ -589,17 +610,32 @@
       drawTile(t, i, now);
     }
 
-    const drawCell = (c, alpha) => {
-      g.fillStyle = 'rgba(245, 196, 0,' + alpha + ')';
-      const bottom = H - c.row * rowH;
-      g.fillRect(c.lane * laneW + 2, bottom - rowH + 1, laneW - 4, rowH - 2);
-      g.strokeStyle = 'rgba(0, 0, 0,' + alpha + ')';
-      g.lineWidth = 2;
-      g.strokeRect(c.lane * laneW + 3, bottom - rowH + 2, laneW - 6, rowH - 4);
+    // 잘못 누른 자리: 건반에 붉은 잉크가 번지듯 (건반 결이 비치도록 곱하기 합성)
+    const drawCell = (c, alpha, spread) => {
+      g.save();
+      g.beginPath();
+      g.rect(c.lane * laneW + 2, 0, laneW - 4, H);
+      g.clip();
+      g.globalCompositeOperation = 'multiply';
+      const r = rowH * (0.55 + 0.5 * spread);
+      const rg = g.createRadialGradient(c.x, c.y, 0, c.x, c.y, r);
+      rg.addColorStop(0, 'rgba(206, 38, 46,' + (0.62 * alpha) + ')');
+      rg.addColorStop(0.45, 'rgba(206, 38, 46,' + (0.34 * alpha) + ')');
+      rg.addColorStop(1, 'rgba(206, 38, 46, 0)');
+      g.fillStyle = rg;
+      g.fillRect(c.x - r, c.y - r, r * 2, r * 2);
+      g.restore();
     };
-    flashes = flashes.filter((c) => now - c.born < 300);
-    flashes.forEach((c) => drawCell(c, 0.7 * (1 - (now - c.born) / 300)));
-    if (failCell) drawCell(failCell, Math.floor(now / 160) % 2 ? 0.95 : 0.6);
+    const FLASH_MS = 520;
+    flashes = flashes.filter((c) => now - c.born < FLASH_MS);
+    flashes.forEach((c) => {
+      const k = (now - c.born) / FLASH_MS;
+      drawCell(c, 1 - k * k, Math.sqrt(k));
+    });
+    if (failCell) {
+      const k = Math.min(1, (now - failCell.born) / 400);
+      drawCell(failCell, 0.75 + 0.25 * Math.sin(now / 180), Math.sqrt(k));
+    }
 
     popups = popups.filter((p) => now - p.born < 700);
     g.textAlign = 'center';
