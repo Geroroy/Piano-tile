@@ -260,5 +260,9 @@
     src.start(c.currentTime + 0.01);
   }
 
-  global.Piano = { ensure, schedule, stopAll, release, failSound, loadSamples, sampler };
+  // 일시정지: 오디오 시계를 멈추면 예약된 음도 그 자리에서 멈춘다
+  function suspend() { if (ctx && ctx.state === 'running') ctx.suspend(); }
+  function resume() { if (ctx && ctx.state === 'suspended') ctx.resume(); }
+
+  global.Piano = { ensure, schedule, stopAll, release, failSound, loadSamples, sampler, suspend, resume };
 })(window);

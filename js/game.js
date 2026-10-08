@@ -35,6 +35,8 @@
     resultScore: $('#result-score'),
     resultDetail: $('#result-detail'),
     practice: $('#practice'),
+    pause: $('#pause'),
+    countdown: $('#countdown'),
   };
 
   const store = {
@@ -99,7 +101,9 @@
   // ---------- 상태 ----------
   let W = 0, H = 0, dpr = 1, rowH = 0, laneW = 0;
   let chart = null;
-  let state = 'menu'; // menu | ready | playing | failed | cleared
+  let state = 'menu'; // menu | ready | playing | paused | countdown | failed | cleared
+  let pausedFrom = null; // 일시정지 전 상태 (ready | playing)
+  let countdownEnd = 0;
   let scroll = 0, speed = 0, next = 0, cur = 0, score = 0, errors = 0, missed = 0;
   let pending = []; // 음이 아직 남아 있는(해제된) 타일들
   let failTarget = null, failCell = null, endTimer = 0;
@@ -170,8 +174,43 @@
     state = 'ready';
     ui.menu.hidden = true;
     ui.result.hidden = true;
+    ui.pause.hidden = true;
+    ui.countdown.hidden = true;
     ui.hud.hidden = false;
     updateHud();
+  }
+
+  // ---------- 일시정지 ----------
+  // 오디오 시계 자체를 멈추므로 예약된 음과 화면이 함께 멈췄다가 그대로 이어진다
+  function pause() {
+    if (state !== 'playing' && state !== 'ready' && state !== 'countdown') return;
+    if (state !== 'countdown') pausedFrom = state;
+    state = 'paused';
+    for (const id of [...holds.keys()]) finishHold(id, false);
+    Piano.suspend();
+    ui.countdown.hidden = true;
+    const t = chart.tiles[Math.min(next, chart.tiles.length - 1)];
+    $('#pause-where').textContent = chart.song.title + ' · ' + chart.sections[t.section] +
+      ' · 진행 ' + Math.round((100 * next) / chart.tiles.length) + '%';
+    const box = $('#pause-sections');
+    box.innerHTML = '';
+    const { steps, sections } = songData(chart.song);
+    if (sections.length > 1) box.appendChild(sectionPicker(chart.song, steps, sections, 'pause-'));
+    ui.pause.hidden = false;
+    $('#btn-resume').focus();
+  }
+
+  function resume() {
+    if (state !== 'paused') return;
+    ui.pause.hidden = true;
+    if (pausedFrom === 'ready') {
+      state = 'ready';
+      Piano.resume();
+      return;
+    }
+    state = 'countdown';
+    countdownEnd = performance.now() + 1800;
+    ui.countdown.hidden = false;
   }
 
   function showMenu() {
@@ -181,8 +220,11 @@
     pending = [];
     Piano.stopAll();
     ui.result.hidden = true;
+    ui.pause.hidden = true;
+    ui.countdown.hidden = true;
     ui.hud.hidden = true;
     ui.menu.hidden = false;
+    Piano.resume();
     renderMenu();
   }
 
@@ -309,6 +351,17 @@
   // ---------- 업데이트 ----------
   function update(dt) {
     if (!chart) return;
+    if (state === 'countdown') {
+      const left = countdownEnd - performance.now();
+      if (left <= 0) {
+        ui.countdown.hidden = true;
+        state = pausedFrom;
+        Piano.resume();
+      } else {
+        ui.countdown.textContent = String(Math.ceil(left / 600));
+      }
+      return;
+    }
     if (state === 'playing') {
       speed += (targetSpeed() - speed) * Math.min(1, dt * 8);
       scroll += speed * dt;
@@ -686,6 +739,10 @@
       e.preventDefault();
     } else if (e.key === 'Escape' && !composerPanel.hidden) {
       composerPanel.hidden = true;
+    } else if (e.key === 'Escape' && state === 'paused') {
+      resume();
+    } else if (e.key === 'Escape' && (state === 'playing' || state === 'ready' || state === 'countdown')) {
+      pause();
     } else if (e.key === 'Escape' && state !== 'menu') {
       showMenu();
     } else if ((e.key === 'Enter' || e.key === ' ') && !ui.result.hidden) {
@@ -697,11 +754,23 @@
     const k = e.key.toLowerCase();
     if (k in KEYS) releasePointer('k' + k);
   });
-  window.addEventListener('blur', () => { for (const id of [...holds.keys()]) finishHold(id, false); });
+  window.addEventListener('blur', () => {
+    for (const id of [...holds.keys()]) finishHold(id, false);
+    if (state === 'playing' || state === 'countdown') pause();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && (state === 'playing' || state === 'countdown')) pause();
+  });
 
   $('#btn-retry').addEventListener('click', () => startSong(chart.song, chart.startSection, chart.endSection));
   $('#btn-menu').addEventListener('click', showMenu);
-  $('#btn-back').addEventListener('click', showMenu);
+  $('#btn-back').addEventListener('click', () => {
+    if (state === 'playing' || state === 'ready' || state === 'countdown') pause();
+    else showMenu();
+  });
+  $('#btn-resume').addEventListener('click', resume);
+  $('#btn-restart').addEventListener('click', () => startSong(chart.song, chart.startSection, chart.endSection));
+  $('#btn-pause-menu').addEventListener('click', showMenu);
 
   // ---------- 메뉴 ----------
   function renderMenu() {
@@ -806,7 +875,7 @@
   }
 
   // 구간 바로가기: 누르면 그 구간부터 바로 시작
-  function sectionPicker(song, steps, sections) {
+  function sectionPicker(song, steps, sections, idPrefix) {
     const secs = sections.map(() => 0);
     steps.forEach((st) => { if (!st.rest) secs[st.section] += st.sec; });
     const mult = SPEEDS[settings.speed].mult;
@@ -821,7 +890,7 @@
     head.className = 'sections-head';
     head.innerHTML = '<span>구간 바로가기</span><label class="toggle small"><input type="checkbox"><span>이 구간만 치기</span></label>';
     const only = head.querySelector('input');
-    only.id = 'section-only-' + song.id;
+    only.id = (idPrefix || '') + 'section-only-' + song.id;
     only.checked = settings.sectionOnly;
     only.addEventListener('change', () => { settings.sectionOnly = only.checked; store.set('pt.settings', settings); });
     box.appendChild(head);
