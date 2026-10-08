@@ -48,7 +48,8 @@
 
   /*
    * MIDI 변환기(tools/midi2chart.js)가 만드는 '시간 기록' 차트
-   *   칸,박,템포:시작.음.길이.세기;...   (시작·길이는 1박 = 96, 칸이 0이면 '한 순간 = 한 타일' 모드)
+   *   칸,박,템포[,1]:시작.음.길이.세기;...   (시작·길이는 1박 = 96, 칸이 0이면 '한 순간 = 한 타일' 모드,
+   *                                        끝의 ,1 은 이 순간에 페달을 다시 밟는다는 표시)
    *   r:칸                               쉼표
    * '//' 뒤는 주석
    */
@@ -60,13 +61,13 @@
         if (!tok) continue;
         const [head, body] = tok.split(':');
         if (head === 'r') { steps.push({ rest: true, rows: parseFloat(body) }); continue; }
-        const [rows, beats, qpm] = head.split(',').map(Number);
+        const [rows, beats, qpm, pedal] = head.split(',').map(Number);
         if (!(rows >= 0 && beats > 0 && qpm > 0)) throw new Error('잘못된 타일: "' + tok + '"');
         const events = (body ? body.split(';') : []).map((e) => {
           const [o, m, d, v] = e.split('.').map(Number);
           return { o: o / TICKS, m, d: d / TICKS, v: v / 127 };
         });
-        steps.push({ rows, beats, qpm, events });
+        steps.push({ rows, beats, qpm, events, pedal: pedal === 1 });
       }
     }
     return steps;
@@ -99,6 +100,7 @@
             rows: h,
             sec: h / ONSET_RPS,
             section: si,
+            pedal: st.pedal,
             // 길이는 원래 음 사이 간격 대비 비율 → 늘어난 만큼 함께 늘어남
             events: st.events.map((e) => ({ o: 0, d: (e.d / st.beats) * (full / h), m: e.m, v: e.v })),
           });
@@ -114,6 +116,7 @@
         });
         tileNo++;
       }
+      applyPedal(out);
       // 쉼표는 앞 타일과 같은 속도로 흐르게
       out.forEach((s, i) => {
         if (!s.rest || s.sec !== null) return;
@@ -137,6 +140,37 @@
       }
     });
     return { steps: out, sections: song.sections.map((s) => s.name) };
+  }
+
+  /*
+   * 음 길이 다듬기 (칸 단위로 계산하므로 늘어난 구간에서도 비율이 유지된다)
+   * - 레가토: 다음 음 직전까지 이어지는 음은 다음 음과 살짝 겹치게 (쉼표·스타카토는 그대로)
+   * - 페달: 페달 표시가 있는 곡은 다음 '다시 밟기' 직후까지 음이 이어진다
+   */
+  const LEGATO_ROWS = 0.15;
+  const PEDAL_LIFT_ROWS = 0.12; // 새 화성이 울린 직후에 떼기 (레가토 페달)
+  const MAX_RING_ROWS = 14;
+  function applyPedal(steps) {
+    let y = 0;
+    const tiles = [];
+    for (const st of steps) {
+      if (!st.rest) tiles.push({ st, y });
+      y += st.rows;
+    }
+    const usesPedal = tiles.some((t) => t.st.pedal);
+    let nextChange = y;
+    for (let i = tiles.length - 1; i >= 0; i--) {
+      const { st, y: ty } = tiles[i];
+      const nextY = i + 1 < tiles.length ? tiles[i + 1].y : y;
+      st.events.forEach((e) => {
+        let end = ty + e.d * st.rows;
+        if (end >= nextY - 0.25 * (nextY - ty)) end = Math.max(end, nextY + LEGATO_ROWS);
+        if (usesPedal) end = Math.max(end, nextChange + PEDAL_LIFT_ROWS);
+        end = Math.min(end, ty + Math.max(e.d * st.rows, MAX_RING_ROWS));
+        e.d = (end - ty) / st.rows;
+      });
+      if (st.pedal) nextChange = ty;
+    }
   }
 
   const songs = [];

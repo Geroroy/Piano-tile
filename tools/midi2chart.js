@@ -110,6 +110,40 @@ function parseMidi(buf) {
 }
 
 const TICKS = 96; // 차트에 저장하는 시간 해상도: 4분음표 1박 = 96
+
+/*
+ * 악보 MIDI에는 페달이 없으므로 피아니스트처럼 '화성이 바뀔 때' 다시 밟는 지점을 표시한다.
+ * - 베이스 음(G3 아래, 또는 옥타브만으로 된 선율)이 새 음이름으로 바뀌면 다시 밟음
+ * - 새 마디가 베이스 음으로 시작하면 다시 밟음
+ * - 한 마디 넘게 다시 밟지 않았으면 다음 음에서 다시 밟음
+ */
+function markPedal(tiles, bars) {
+  let bi = 0, curBar = -1, lastChange = -Infinity;
+  let held = new Set(); // 지금 페달 아래 울리는 음이름들
+  for (const t of tiles) {
+    while (bi + 1 < bars.length && bars[bi + 1].start <= t.start + 1e-6) bi++;
+    const pitches = t.notes.map((n) => n.m);
+    const low = Math.min(...pitches);
+    const octavesOnly = pitches.length > 1 && pitches.every((p) => p % 12 === low % 12);
+    const bass = low < 55 || octavesOnly ? low : null;
+    let change = lastChange === -Infinity;
+    // 베이스가 지금 화성에 없는 음으로 바뀌면 (화성이 어느 정도 쌓였을 때)
+    if (bass !== null && !held.has(bass % 12) && held.size >= 3) change = true;
+    // 새 마디가 베이스로 시작하면
+    if (bass !== null && bi !== curBar) change = true;
+    // 음계처럼 서로 다른 음이 너무 많이 쌓이면 (흐려지지 않게)
+    if (held.size >= 6 && pitches.some((p) => !held.has(p % 12))) change = true;
+    // 한 마디 넘게 밟고 있었으면
+    if (t.start - lastChange > bars[bi].len + 1e-6) change = true;
+    if (change) {
+      t.pedal = true;
+      lastChange = t.start;
+      curBar = bi;
+      held = new Set();
+    }
+    pitches.forEach((p) => held.add(p % 12));
+  }
+}
 const UNITS = [0.5, 1, 1.5, 2, 3, 4, 6];
 const r6 = (x) => Math.round(x * 1e6) / 1e6;
 
@@ -168,6 +202,7 @@ function convert(opts) {
       while (ti < tiles.length && tiles[ti].start < bar.start - 1e-6) ti++;
       barFirstTile.push(ti);
     }
+    markPedal(tiles, bars);
   }
   for (const bar of opts.perOnset ? [] : bars) {
     const qpm = qpmAt(bar.start);
@@ -219,7 +254,7 @@ function convert(opts) {
       const ev = t.notes.map((n) => [
         Math.round((n.s - t.start) * TICKS), n.m, Math.max(1, Math.round((n.e - n.s) * TICKS)), n.v,
       ].join('.'));
-      return t.rows + ',' + r6(t.beats) + ',' + Math.round(t.qpm) + ':' + ev.join(';');
+      return t.rows + ',' + r6(t.beats) + ',' + Math.round(t.qpm) + (t.pedal ? ',1' : '') + ':' + ev.join(';');
     });
     if (toks.length) lines.push('    ' + toks.join(' ') + '  // m.' + (bi + 1));
   });

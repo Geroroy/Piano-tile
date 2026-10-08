@@ -9,7 +9,7 @@
   let ctx = null;
   let bus = null;
   const voices = [];
-  const MAX_VOICES = 64;
+  const MAX_VOICES = 96;
   const lastByKey = new Map(); // 같은 건반을 다시 치면 앞 소리를 멈춘다 (실제 피아노처럼)
 
   const sampler = { layers: null, buffers: new Map(), loaded: 0, total: 0, state: 'idle' };
