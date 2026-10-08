@@ -7,7 +7,9 @@
   // 판정선: 화면 아래에서 LINE 칸 위. 음악은 스크롤이 판정선에 닿는 순간 악보 박자대로 울린다.
   // 타일을 미리 쳐 두면 그 타일의 음은 제 박자에 울리고, 늦게 치면(MISS_WINDOW 안) 곧바로 울린다.
   const LINE = 0.75;
-  const MISS_WINDOW = 0.65; // 타일 밑변이 판정선을 이만큼(칸) 지나도록 안 치면 놓친 것
+  const MISS_WINDOW = 0.65; // 짧은 타일: 밑변이 판정선을 이만큼(칸) 지나도록 안 치면 놓친 것
+  // 키 큰 타일은 몸통이 판정선에 걸쳐 있는 동안(윗변이 판정선 근처에 올 때까지) 칠 수 있다
+  const missLimit = (t) => Math.max(MISS_WINDOW, t.h - 0.2);
   const LOOKAHEAD = 0.12; // 초: 이만큼 앞의 음까지 미리 예약
   const LATE_SKIP = 0.6; // 칸: 늦게 친 타일에서 이보다 오래 지난 음은 건너뜀
   const SPEEDS = {
@@ -130,7 +132,8 @@
         const p = t.y + e.o * t.h;
         if (p > horizon) break;
         t.evIdx++;
-        if (p < pos - LATE_SKIP) continue;
+        // 늦게 친 타일이라도 타일의 첫 음(o=0)은 반드시 울린다. 지나간 나머지 음만 건너뜀
+        if (e.o > 0 && p < pos - LATE_SKIP) continue;
         const v = Piano.schedule(e.m, Math.max(0, (p - pos) / speed), e.v, (e.d * t.h) / speed);
         if (v) t.voices.push(v);
       }
@@ -323,7 +326,7 @@
       scheduleNotes();
 
       const t = chart.tiles[next];
-      if (t && t.y - scroll < LINE - MISS_WINDOW) {
+      if (t && t.y - scroll < LINE - missLimit(t)) {
         if (settings.practice) {
           t.missed = true;
           missed++;
