@@ -7,6 +7,7 @@ PianoTiles.registerSong({
   id: "chopin-ballade-1",
   title: "발라드 1번 G단조",
   composer: "F. Chopin · Op. 23",
+  composerId: "chopin",
   difficulty: 5,
   credit: "ASAP dataset (Foscarin et al., 2020) 악보 MIDI, CC BY-NC-SA 4.0 — https://github.com/fosfrancesco/asap-dataset",
   sections: [

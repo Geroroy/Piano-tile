@@ -15,6 +15,7 @@
  *   --sections "1:서주|8:제1주제"   마디 번호:구간 이름 (메뉴의 시작 구간 선택과 화면 표시에 사용)
  *   --credit "..."    출처 표기
  *   --difficulty N    1~5
+ *   --composer-id ID  composers/ 폴더의 작곡가 정보 ID (예: chopin)
  */
 'use strict';
 const fs = require('fs');
@@ -33,6 +34,7 @@ function parseArgs(argv) {
     else if (a === '--tracks') opts.tracks = v().split(',').map(Number);
     else if (a === '--sections') opts.sections = v();
     else if (a === '--credit') opts.credit = v();
+    else if (a === '--composer-id') opts.composerId = v();
     else if (a === '--difficulty') opts.difficulty = parseInt(v(), 10);
     else if (a === '--id') opts.id = v();
     else if (a === '--title') opts.title = v();
@@ -210,7 +212,7 @@ PianoTiles.registerSong({
   id: ${JSON.stringify(opts.id)},
   title: ${JSON.stringify(opts.title)},
   composer: ${JSON.stringify(opts.composer)},
-  difficulty: ${opts.difficulty},
+${opts.composerId ? '  composerId: ' + JSON.stringify(opts.composerId) + ',\n' : ''}  difficulty: ${opts.difficulty},
   credit: ${JSON.stringify(opts.credit)},
   sections: ${JSON.stringify(sections, null, 2).replace(/\n/g, '\n  ')},
   chart: \`

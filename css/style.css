@@ -248,6 +248,72 @@ kbd {
   font: 11px/18px ui-monospace, monospace;
 }
 
+.composer-link {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 0 16px 14px;
+  padding: 9px 12px;
+  border: 1px solid #2c3240;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+.composer-link:hover { border-color: var(--accent); }
+.composer-link:focus-visible, .work-play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- 작곡가 소개 ---------- */
+#composer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow-y: auto;
+  background: #0f1218;
+  padding: 28px 16px 32px;
+}
+.composer-inner { position: relative; max-width: 460px; margin: 0 auto; }
+.composer-inner .icon-btn { top: -8px; right: 0; background: #1d222c; }
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--star);
+}
+#composer h2 { margin: 6px 0 2px; font-size: 30px; text-wrap: balance; }
+.composer-original { margin: 0 0 18px; color: var(--muted); font-size: 14px; font-style: italic; }
+#composer-bio p { margin: 0 0 12px; font-size: 15px; line-height: 1.7; color: #d4d9e2; }
+#composer h3 {
+  margin: 24px 0 10px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+#composer-works { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+#composer-works li {
+  padding: 12px 14px;
+  border: 1px solid #232835;
+  border-radius: 12px;
+  background: #151922;
+}
+#composer-works li.playable { border-color: var(--accent); }
+.work-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.work-title { font-weight: 700; font-size: 15px; min-width: 0; }
+.work-year { flex-shrink: 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.work-note { margin: 4px 0 0; font-size: 13px; line-height: 1.55; color: var(--muted); }
+.work-play {
+  margin-top: 10px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 /* ---------- 결과 ---------- */
 #result { display: flex; align-items: center; justify-content: center; }
 #result .card { text-align: center; width: 100%; max-width: 360px; }

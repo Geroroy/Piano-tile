@@ -128,5 +128,8 @@
     songs.push(song);
   }
 
-  global.PianoTiles = { songs, registerSong, parseNotation, parseTimedChart, songSteps, noteToMidi };
+  const composers = {};
+  function registerComposer(c) { composers[c.id] = c; }
+
+  global.PianoTiles = { songs, registerSong, composers, registerComposer, parseNotation, parseTimedChart, songSteps, noteToMidi };
 })(typeof window !== 'undefined' ? window : globalThis);

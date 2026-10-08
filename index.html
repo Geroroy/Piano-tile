@@ -44,6 +44,18 @@
       </footer>
     </section>
 
+    <section id="composer" hidden aria-labelledby="composer-name">
+      <div class="composer-inner">
+        <button id="btn-composer-close" class="icon-btn" aria-label="닫기">✕</button>
+        <p class="eyebrow" id="composer-meta"></p>
+        <h2 id="composer-name"></h2>
+        <p class="composer-original" id="composer-original"></p>
+        <div id="composer-bio"></div>
+        <h3>대표곡</h3>
+        <ol id="composer-works"></ol>
+      </div>
+    </section>
+
     <section id="result" hidden>
       <div class="card">
         <h2 id="result-title"></h2>
@@ -60,6 +72,8 @@
 
   <script src="js/notation.js"></script>
   <script src="js/audio.js"></script>
+  <!-- 작곡가 정보 -->
+  <script src="composers/chopin.js"></script>
   <!-- 곡 목록: 새 곡은 songs/ 폴더에 파일을 만들고 여기에 한 줄 추가 -->
   <script src="songs/chopin-ballade-1.js"></script>
   <script src="js/game.js"></script>

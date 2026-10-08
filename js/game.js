@@ -456,6 +456,8 @@
         press(KEYS[k], y, 'k' + k);
       }
       e.preventDefault();
+    } else if (e.key === 'Escape' && !composerPanel.hidden) {
+      composerPanel.hidden = true;
     } else if (e.key === 'Escape' && state !== 'menu') {
       showMenu();
     } else if ((e.key === 'Enter' || e.key === ' ') && !ui.result.hidden) {
@@ -502,6 +504,14 @@
         : '기록 없음';
 
       li.querySelector('.song').addEventListener('click', () => startSong(song, 0));
+      const composer = PianoTiles.composers[song.composerId];
+      if (composer) {
+        const cb = document.createElement('button');
+        cb.className = 'composer-link';
+        cb.textContent = '작곡가 소개 · ' + composer.name + ' →';
+        cb.addEventListener('click', () => showComposer(composer));
+        li.appendChild(cb);
+      }
       if (sections.length > 1) li.appendChild(sectionPicker(song, steps, sections));
       if (song.credit) {
         const credit = document.createElement('p');
@@ -512,6 +522,40 @@
       ui.songList.appendChild(li);
     });
   }
+
+  // ---------- 작곡가 소개 ----------
+  const composerPanel = $('#composer');
+  function showComposer(c) {
+    $('#composer-meta').textContent = [c.years, c.origin, c.era].filter(Boolean).join(' · ');
+    $('#composer-name').textContent = c.name;
+    $('#composer-original').textContent = c.original || '';
+    const bio = $('#composer-bio');
+    bio.innerHTML = '';
+    c.bio.forEach((para) => { const p = document.createElement('p'); p.textContent = para; bio.appendChild(p); });
+    const list = $('#composer-works');
+    list.innerHTML = '';
+    c.works.forEach((w) => {
+      const li = document.createElement('li');
+      li.innerHTML = '<div class="work-head"><span class="work-title"></span><span class="work-year"></span></div><p class="work-note"></p>';
+      li.querySelector('.work-title').textContent = w.title;
+      li.querySelector('.work-year').textContent = w.year || '';
+      li.querySelector('.work-note').textContent = w.note || '';
+      const song = w.song && PianoTiles.songs.find((x) => x.id === w.song);
+      if (song) {
+        li.classList.add('playable');
+        const b = document.createElement('button');
+        b.className = 'work-play';
+        b.textContent = '▶ 이 곡 플레이';
+        b.addEventListener('click', () => { composerPanel.hidden = true; startSong(song, 0); });
+        li.appendChild(b);
+      }
+      list.appendChild(li);
+    });
+    composerPanel.hidden = false;
+    composerPanel.scrollTop = 0;
+    $('#btn-composer-close').focus();
+  }
+  $('#btn-composer-close').addEventListener('click', () => { composerPanel.hidden = true; });
 
   // 구간 바로가기: 누르면 그 구간부터 바로 시작
   function sectionPicker(song, steps, sections) {

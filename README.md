@@ -68,6 +68,27 @@ PianoTiles.registerSong({
 
 음 이름은 `C D E F G A B` + `#`/`b` + 옥타브(가운데 도 = `C4`). 섹션의 `tempo`는 속도 배율(1 = 초당 2.4칸), `unit`은 타일 1칸의 박 수입니다.
 
+## 작곡가 소개 추가하기
+
+곡 카드의 "작곡가 소개" 버튼은 `composers/` 폴더의 정보를 보여줍니다. 새 작곡가는 파일을 만들고 `index.html`의 작곡가 주석 아래에 스크립트 한 줄을 추가하세요.
+
+```js
+PianoTiles.registerComposer({
+  id: 'bach',                      // 곡 파일의 composerId 와 같게
+  name: '요한 제바스티안 바흐',
+  original: 'Johann Sebastian Bach',
+  years: '1685 – 1750',
+  origin: '독일',
+  era: '바로크',
+  bio: ['문단 1', '문단 2'],
+  works: [
+    { title: '평균율 클라비어 곡집', year: '1722', note: '한 줄 설명', song: 'bach-wtc-1' }, // song: 게임에 있는 곡이면 '플레이' 버튼이 생김
+  ],
+});
+```
+
+곡 파일에는 `composerId: 'bach'`를 넣습니다(변환기 옵션 `--composer-id bach`).
+
 ## 라이선스 참고
 
 발라드 1번 차트(`songs/chopin-ballade-1.js`)는 ASAP dataset(Foscarin et al., 2020)의 악보 MIDI에서 만들었으며, 원 데이터의 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 조건(출처 표기, 비상업적 이용, 동일 조건 변경 허락)을 따릅니다.
