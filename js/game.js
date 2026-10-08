@@ -292,6 +292,28 @@
     const onScreen = tileBottom(t) - t.h * rowH < H && tileBottom(t) > 0;
     if (lane === t.lane && onScreen) { hit(t, pointerId); return; }
 
+    // 기다리던 타일을 놓치고 그다음 타일을 친 경우: 사이의 타일만 놓친 것으로 치고 이 타일은 인정.
+    // (그러지 않으면 계속 한 칸씩 어긋나서 이후 모든 터치가 실수가 된다)
+    const keyboard = String(pointerId).charAt(0) === 'k';
+    for (let k = next + 1; k < chart.tiles.length && k <= next + 6; k++) {
+      const c = chart.tiles[k];
+      if (c.y - scroll > VISIBLE_ROWS) break;
+      if (c.lane !== lane) continue;
+      const b = tileBottom(c);
+      const onTile = keyboard
+        ? c.y - scroll - LINE < 0.9
+        : yPx <= b + rowH * 0.25 && yPx >= b - c.h * rowH - rowH * 0.25;
+      if (!onTile) break;
+      if (!settings.practice) { fail(t); return; }
+      for (let j = next; j < k; j++) {
+        chart.tiles[j].missed = true;
+        missed++;
+      }
+      next = k;
+      hit(c, pointerId);
+      return;
+    }
+
     // 이미 친 타일 위를 다시 누른 경우는 무시
     for (let i = next - 1; i >= 0 && i >= next - 8; i--) {
       const p = chart.tiles[i];
