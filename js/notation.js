@@ -278,8 +278,86 @@
     res.steps.forEach((st) => {
       if (!st.rest && st.top === undefined) st.top = Math.max(...st.events.map((e) => e.m));
     });
+    assignLanes(res.steps, 4);
     levelCache.set(key, res);
     return res;
+  }
+
+  /*
+   * 줄 배치: 피아노 롤(연주 영상의 떨어지는 음)처럼 음높이를 줄에 대응한다. 낮은 음 = 왼쪽, 높은 음 = 오른쪽.
+   * 4줄뿐이라 앞뒤 LANE_WINDOW 초 안의 음역을 4줄에 펼친다 → 상승·하강·도약이 그대로 보인다.
+   * 바로 앞 타일과 같은 줄이 되면(겹쳐 보이므로) 음이 움직인 방향으로 한 칸 비킨다.
+   */
+  const LANE_WINDOW = 1.2;
+  const LANE_MIN_SPAN = 7; // 음역이 이보다 좁으면(트릴·반복음) 이만큼으로 넓혀 작은 움직임은 옆 줄로만
+  function assignLanes(steps, lanes) {
+    const tiles = [];
+    let y = 0;
+    steps.forEach((st) => {
+      if (!st.rest) {
+        const atStart = st.events.filter((e) => e.o < 1e-6);
+        const pitch = Math.max(...(atStart.length ? atStart : st.events).map((e) => e.m));
+        tiles.push({ st, y, pitch });
+      }
+      y += st.rows;
+    });
+    const win = LANE_WINDOW * ONSET_RPS;
+    let lo = 0, hi = 0, prevLane = -1, prevPitch = 0, prevMove = 1;
+    tiles.forEach((t, i) => {
+      while (tiles[lo].y < t.y - win) lo++;
+      while (hi + 1 < tiles.length && tiles[hi + 1].y <= t.y + win) hi++;
+      let min = Infinity, max = -Infinity;
+      for (let j = lo; j <= hi; j++) { min = Math.min(min, tiles[j].pitch); max = Math.max(max, tiles[j].pitch); }
+      if (max - min < LANE_MIN_SPAN) { const mid = (max + min) / 2; min = mid - LANE_MIN_SPAN / 2; max = mid + LANE_MIN_SPAN / 2; }
+      let lane = Math.min(lanes - 1, Math.max(0, Math.round(((t.pitch - min) / (max - min)) * (lanes - 1))));
+      if (lane === prevLane) {
+        const dir = Math.sign(t.pitch - prevPitch) || -prevMove;
+        lane += dir;
+        if (lane < 0 || lane >= lanes) lane -= 2 * dir;
+      }
+      if (prevLane >= 0 && lane !== prevLane) prevMove = Math.sign(lane - prevLane);
+      t.st.lane = lane;
+      prevLane = lane;
+      prevPitch = t.pitch;
+    });
+    // 음계처럼 한 방향으로 차례로 움직이는 구간(4타일 이상, 장3도 이내 걸음)은 계단처럼 쓸어 올리거나 내린다
+    // 올라가면 1→2→3→4→1→2…, 내려가면 4→3→2→1→4…
+    const stepDir = (i) => {
+      const d = tiles[i].pitch - tiles[i - 1].pitch;
+      return d !== 0 && Math.abs(d) <= 4 && tiles[i].y - tiles[i - 1].y < win ? Math.sign(d) : 0;
+    };
+    for (let i = 1; i < tiles.length;) {
+      const dir = stepDir(i);
+      let j = i;
+      while (dir && j + 1 < tiles.length && stepDir(j + 1) === dir) j++;
+      if (dir && j - i + 2 >= 4) {
+        let lane = tiles[i - 1].st.lane;
+        for (let k = i; k <= j; k++) {
+          lane += dir;
+          if (lane >= lanes) lane = 0;
+          if (lane < 0) lane = lanes - 1;
+          tiles[k].st.lane = lane;
+        }
+        if (j + 1 < tiles.length && tiles[j + 1].st.lane === lane) {
+          const n = tiles[j + 1];
+          n.st.lane = lane + (lane + 1 < lanes ? 1 : -1);
+        }
+        i = j + 1;
+      } else {
+        i++;
+      }
+    }
+    // 마지막 점검: 바로 앞과 같은 줄이면 음 방향으로 비킨다 (뒤 타일과도 겹치지 않게)
+    for (let i = 1; i < tiles.length; i++) {
+      const t = tiles[i], p = tiles[i - 1];
+      if (t.st.lane !== p.st.lane) continue;
+      const dir = Math.sign(t.pitch - p.pitch) || 1;
+      const nextLane = i + 1 < tiles.length ? tiles[i + 1].st.lane : -1;
+      const options = [p.st.lane + dir, p.st.lane - dir, p.st.lane + 2 * dir, p.st.lane - 2 * dir]
+        .filter((l) => l >= 0 && l < lanes);
+      t.st.lane = options.find((l) => l !== nextLane) !== undefined ? options.find((l) => l !== nextLane) : options[0];
+    }
+    return steps;
   }
 
   const songs = [];
@@ -293,5 +371,5 @@
   const composers = {};
   function registerComposer(c) { composers[c.id] = c; }
 
-  global.PianoTiles = { songs, registerSong, levelSteps, LEVELS, composers, registerComposer, parseNotation, parseTimedChart, songSteps, noteToMidi };
+  global.PianoTiles = { songs, registerSong, levelSteps, LEVELS, assignLanes, composers, registerComposer, parseNotation, parseTimedChart, songSteps, noteToMidi };
 })(typeof window !== 'undefined' ? window : globalThis);

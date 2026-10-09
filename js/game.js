@@ -50,51 +50,21 @@
   if (!SPEEDS[settings.speed]) settings.speed = 'normal';
 
   // ---------- 차트 생성 ----------
-  function hashStr(s) {
-    let h = 2166136261;
-    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-    return h >>> 0;
-  }
-  function rng32(seed) {
-    return function () {
-      seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
-      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
   // 선택한 난이도의 타일 목록 (notation.js 에서 캐시)
   function songData(song) {
     return PianoTiles.levelSteps(song, settings.level);
   }
 
-  // startSection ~ endSection 구간만 담은 차트. 줄 배치는 곡마다 고정(시드)이라 어디서 시작해도 같다.
+  // startSection ~ endSection 구간만 담은 차트. 줄 배치는 음높이로 정해져 있어 어디서 시작해도 같다.
   function buildChart(song, startSection, endSection) {
     const { steps, sections } = songData(song);
-    const rand = rng32(hashStr(song.id + ':' + settings.level));
     const tiles = [];
     let y = 0;
-    let prevLane = -1, prevY = -Infinity, prevTop = 0, prevDir = 1, yAll = 0;
     let started = false;
     for (const st of steps) {
-      let lane = -1;
-      if (!st.rest) {
-        // 빠르게 이어지는 타일은 선율 방향(올라가면 오른쪽, 내려가면 왼쪽)으로 옆 줄에 놓는다
-        if (prevLane >= 0 && yAll - prevY < 1.05) {
-          let dir = Math.sign(st.top - prevTop) || -prevDir;
-          lane = prevLane + dir;
-          if (lane < 0 || lane >= LANES) { dir = -dir; lane = prevLane + dir; }
-          prevDir = dir;
-        } else {
-          do { lane = Math.floor(rand() * LANES); } while (lane === prevLane);
-        }
-        prevLane = lane;
-        prevY = yAll;
-        prevTop = st.top;
-        if (!started && st.section >= startSection) started = true;
-      }
-      yAll += st.rows;
+      // 줄은 notation.js 의 assignLanes 가 음높이에 맞춰 정해 둠 (피아노 롤처럼)
+      const lane = st.rest ? -1 : st.lane;
+      if (!st.rest && !started && st.section >= startSection) started = true;
       if (!started) continue;
       if (!st.rest && st.section > endSection) break;
       if (st.rest) { y += st.rows; continue; }
