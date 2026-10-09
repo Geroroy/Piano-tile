@@ -952,14 +952,14 @@
     window.__pt = { get chart() { return chart; }, get scroll() { return scroll; }, get next() { return next; }, LINE, press };
   }
 
-  // 스타인웨이 샘플 불러오기 (메뉴에 진행 상황 표시)
+  // 피아노 샘플 불러오기 (메뉴에 진행 상황 표시)
   const sampleStatus = $('#sample-status');
-  Piano.loadSamples('samples/steinway/', (sm) => {
+  Piano.loadSamples('samples/salamander/', (sm) => {
     if (sm.state === 'loading') {
-      sampleStatus.textContent = '스타인웨이 그랜드 피아노 불러오는 중 · ' + sm.loaded + ' / ' + (sm.total || '…');
+      sampleStatus.textContent = '그랜드 피아노 불러오는 중 · ' + sm.loaded + ' / ' + (sm.total || '…');
       sampleStatus.dataset.state = 'loading';
     } else if (sm.state === 'ready') {
-      sampleStatus.textContent = '스타인웨이 그랜드 피아노 준비 완료';
+      sampleStatus.textContent = '그랜드 피아노(Salamander) 준비 완료';
       sampleStatus.dataset.state = 'ready';
     } else {
       sampleStatus.textContent = '피아노 샘플을 불러오지 못해 합성음으로 연주합니다';

@@ -1,6 +1,7 @@
 /*
  * 피아노 소리
- * - 스타인웨이 그랜드 샘플(Splendid Grand Piano, Akai 퍼블릭 도메인)을 3단계 세기로 재생
+ * - Salamander Grand Piano V3(Yamaha C5, Alexander Holm, CC BY 3.0) 샘플을 8단계 세기·스테레오로 재생,
+ *   건반을 놓을 때의 댐퍼 소리까지
  * - 샘플을 아직 못 불러왔거나 불러올 수 없으면(예: file:// 로 열었을 때) 합성음으로 대신 연주
  */
 (function (global) {
@@ -12,7 +13,7 @@
   const MAX_VOICES = 96;
   const lastByKey = new Map(); // 같은 건반을 다시 치면 앞 소리를 멈춘다 (실제 피아노처럼)
 
-  const sampler = { layers: null, buffers: new Map(), loaded: 0, total: 0, state: 'idle' };
+  const sampler = { layers: null, buffers: new Map(), release: new Map(), loaded: 0, total: 0, state: 'idle' };
 
   function makeImpulse(seconds) {
     const len = Math.floor(ctx.sampleRate * seconds);
@@ -59,20 +60,23 @@
       .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then((man) => {
         sampler.layers = man.layers;
-        // 많이 쓰이는 세기부터: 세게 → 중간 → 여리게
-        const order = man.layers.slice().sort((a, b) => b.lovel - a.lovel);
+        // manifest 의 층 순서 = 불러오는 순서 (곡에서 많이 쓰는 세기부터). 건반 놓는 소리는 맨 나중에.
         const jobs = [];
-        order.forEach((layer) => layer.regions.forEach((reg) => jobs.push({ layer, reg })));
+        man.layers.forEach((layer) => layer.regions.forEach((reg) => jobs.push({ layer, reg })));
+        (man.release || []).forEach((rel) => jobs.push({ rel }));
         sampler.total = jobs.length;
         report();
         let i = 0;
         const worker = () => {
           if (i >= jobs.length) return Promise.resolve();
-          const { layer, reg } = jobs[i++];
-          return fetch(base + reg.file)
+          const { layer, reg, rel } = jobs[i++];
+          return fetch(base + (rel ? rel.file : reg.file))
             .then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
             .then((ab) => new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej)))
-            .then((buf) => { sampler.buffers.set(layer.name + ':' + reg.key, buf); })
+            .then((buf) => {
+              if (rel) sampler.release.set(rel.key, buf);
+              else sampler.buffers.set(layer.name + ':' + reg.key, buf);
+            })
             .catch(() => { /* 한 개 실패해도 나머지는 계속 */ })
             .then(() => { sampler.loaded++; report(); return worker(); });
         };
@@ -130,9 +134,11 @@
     const out = ctx.createGain();
     const span = Math.max(1, s.layer.hivel - s.layer.lovel);
     const within = Math.min(1, Math.max(0, (vel127 - s.layer.lovel) / span));
-    out.gain.value = 0.5 + 0.5 * within;
+    // 층이 촘촘해(8단계) 층 안에서는 조금만 바꾼다
+    out.gain.value = 0.72 + 0.28 * within;
     let node = out;
-    if (ctx.createStereoPanner) {
+    // 스테레오 샘플은 녹음된 공간감(AB 마이크)을 그대로 쓰고, 모노일 때만 음높이로 좌우를 나눈다
+    if (s.buf.numberOfChannels < 2 && ctx.createStereoPanner) {
       const pan = ctx.createStereoPanner();
       pan.pan.value = Math.max(-0.5, Math.min(0.5, (midi - 64) / 70)); // 낮은 음은 왼쪽, 높은 음은 오른쪽
       out.connect(pan);
@@ -150,6 +156,7 @@
         out.gain.setValueAtTime(out.gain.value, damp);
         out.gain.setTargetAtTime(0, damp, midi < 48 ? 0.22 : 0.15);
         stopAt = Math.min(stopAt, damp + 1.2);
+        releaseNoise(midi, damp, vel127);
       }
     }
     src.start(t);
@@ -158,6 +165,19 @@
     src.onended = () => forget(v);
     trackVoice(v, midi, t);
     return v;
+  }
+
+  // 댐퍼가 현에 닿을 때 나는 작은 소리 (건반마다 녹음된 소리)
+  function releaseNoise(midi, t, vel127) {
+    const buf = sampler.release.get(midi);
+    if (!buf) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = 0.05 * (0.4 + 0.6 * (vel127 / 127));
+    src.connect(g);
+    g.connect(bus);
+    src.start(t);
   }
 
   // ---------- 합성음 (샘플이 없을 때) ----------

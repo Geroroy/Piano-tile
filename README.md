@@ -2,7 +2,7 @@
 
 브라우저에서 실행되는 피아노 타일 게임입니다. 빌드는 필요 없고, GitHub Pages나 아무 정적 웹 서버로 열면 됩니다
 (예: `python3 -m http.server` 후 http://localhost:8000).
-피아노 소리는 스타인웨이 그랜드 샘플(아래 '음원' 참고)을 씁니다. `index.html`을 파일로 직접 열면 브라우저가 샘플 로딩을 막아서 합성음으로 대신 연주합니다.
+피아노 소리는 Salamander 그랜드 피아노 샘플(아래 '음원' 참고)을 씁니다. `index.html`을 파일로 직접 열면 브라우저가 샘플 로딩을 막아서 합성음으로 대신 연주합니다.
 
 ## 플레이 방법
 
@@ -106,9 +106,8 @@ PianoTiles.registerComposer({
 
 ## 음원
 
-`samples/steinway/`의 피아노 샘플은 [Splendid Grand Piano](https://github.com/sfzinstruments/SplendidGrandPiano)에서 가져왔습니다.
-Akai가 2000년에 퍼블릭 도메인으로 공개한 스타인웨이 그랜드 샘플이며, SFZ 매핑은 kinwie / sfzinstruments 작업입니다.
-웹용으로 세 가지 세기(pp 1–40, mp 41–67, ff 68–127) 180개 샘플을 모노 64kbps MP3로 줄이고, 타건 지점에 맞춰 앞을 잘랐습니다(`manifest.json`에 건반 범위).
+`samples/salamander/`의 피아노 샘플은 [Salamander Grand Piano V3](https://github.com/sfzinstruments/SalamanderGrandPiano)(Alexander Holm, Yamaha C5 그랜드, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/))에서 가져왔습니다. SFZ 매핑은 kinwie / sfzinstruments 작업입니다.
+원본(48kHz/24bit, 16단계 세기, 단3도 간격)에서 8단계 세기(1–36, 37–50, 51–60, 61–76, 77–90, 91–100, 101–116, 117–127) × 30음을 스테레오 80kbps MP3로 줄이고 타건 지점에 맞춰 앞을 잘랐으며, 건반을 놓을 때의 댐퍼 소리 88개를 함께 씁니다(`tools/convert-salamander.py`, `manifest.json`).
 
 ## 라이선스 참고
 
