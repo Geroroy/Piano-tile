@@ -11,7 +11,7 @@
   // 키 큰 타일은 몸통이 판정선에 걸쳐 있는 동안(윗변이 판정선 근처에 올 때까지) 칠 수 있다
   const missLimit = (t) => Math.max(MISS_WINDOW, t.h - 0.2);
   const LOOKAHEAD = 0.12; // 초: 이만큼 앞의 음까지 미리 예약
-  const LATE_SKIP = 0.6; // 칸: 늦게 친 타일에서 이보다 오래 지난 음은 건너뜀
+  const LATE_SKIP = 0.08; // 칸(약 25ms): 늦게 친 타일에서 이보다 오래 지난 뒤쪽 음은 건너뜀
   const SPEEDS = {
     slow: { label: '느리게', mult: 0.75 },
     normal: { label: '보통', mult: 1 },
@@ -121,6 +121,7 @@
         if (p > horizon) break;
         t.evIdx++;
         // 늦게 친 타일이라도 타일의 첫 음(o=0)은 반드시 울린다. 지나간 나머지 음만 건너뜀
+        // 늦게 친 타일: 이미 지나간 뒤쪽 음을 한꺼번에 몰아 울리면 급하게 뭉개지므로 건너뜀 (첫 음은 그대로)
         if (e.o > 0 && p < pos - LATE_SKIP) continue;
         const v = Piano.schedule(e.m, Math.max(0, (p - pos) / speed), e.v, (e.d * t.h) / speed);
         if (v) t.voices.push(v);

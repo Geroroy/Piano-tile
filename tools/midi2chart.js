@@ -125,7 +125,8 @@ const TICKS = 96; // 차트에 저장하는 시간 해상도: 4분음표 1박 = 
  * 긴 패시지는 ORN_MAX_NOTES 음 / ORN_MAX_SEC 초 단위로 나눠 여러 번 치게 한다.
  */
 const ORN_GAP = 0.095;
-const GRACE_GAP = 0.095; // 두 음만 있어도 이보다 가까우면 묶음 (꾸밈음·펼침화음)
+const GRACE_GAP = 0.095;
+const SWEEP_MIN_NOTES = 12; // 두 음만 있어도 이보다 가까우면 묶음 (꾸밈음·펼침화음)
 const ORN_MAX_NOTES = 8;
 const ORN_MAX_SEC = 0.45;
 function mergeOrnaments(tiles) {
@@ -138,6 +139,13 @@ function mergeOrnaments(tiles) {
     const tight = j > i && secOf(tiles[i]) < GRACE_GAP;
     if (j - i + 1 < 3 && !tight) { out.push(tiles[i]); i++; continue; }
     // i..j 가 빠른 연속 음 (j 는 마지막 음)
+    // 12음 이상 이어지며 한 옥타브 넘게 쓸고 가는 패시지는 트릴이 아니라 '음계' → 묶지 않고 하나씩 치게 (속도는 stretchBars 에서)
+    const topOf = (t) => Math.max(...t.notes.map((n) => n.m));
+    if (j - i + 1 >= SWEEP_MIN_NOTES && Math.abs(topOf(tiles[j]) - topOf(tiles[i])) >= 12) {
+      for (let k = i; k <= j; k++) { tiles[k].sweep = true; out.push(tiles[k]); }
+      i = j + 1;
+      continue;
+    }
     for (let k = i; k <= j;) {
       let e = k, sec = 0;
       while (e + 1 <= j && e - k + 1 < ORN_MAX_NOTES && sec + secOf(tiles[e]) < ORN_MAX_SEC) { sec += secOf(tiles[e]); e++; }
@@ -184,6 +192,7 @@ function tempoMapFn(points, bars) {
  * 늘이는 비율은 마디마다 최대 STRETCH_STEP 배씩만 바뀌게 다듬어 갑작스러운 템포 변화가 없게 한다.
  */
 const MIN_TAP_SEC = 0.135;
+const SWEEP_SEC = 0.11; // 음계는 초당 약 9음
 const STRETCH_STEP = 1.1;
 function stretchBars(tiles, bars) {
   const barOf = (t) => {
@@ -195,15 +204,31 @@ function stretchBars(tiles, bars) {
   tiles.forEach((t) => {
     if (t.run) return;
     const sec = (t.beats * 60) / t.qpm;
+    if (sec < 0.03) return; // 거의 동시에 친 음(꾸밈음)은 늘임 계산에서 제외
     const bi = barOf(t);
-    k[bi] = Math.max(k[bi], MIN_TAP_SEC / sec);
+    k[bi] = Math.max(k[bi], Math.min(3, MIN_TAP_SEC / sec));
   });
   for (let i = 1; i < k.length; i++) k[i] = Math.max(k[i], k[i - 1] / STRETCH_STEP);
   for (let i = k.length - 2; i >= 0; i--) k[i] = Math.max(k[i], k[i + 1] / STRETCH_STEP);
-  // 템포는 원래대로 두고 늘임 비율만 기록 (게임의 '마스터' 난이도에서만 적용)
+  // 음계(sweep): 모든 난이도에서 음 사이를 SWEEP_SEC 이상으로 (너무 빨라 뭉개지지 않게, 앞뒤 마디는 서서히)
+  const ks = bars.map(() => 1);
+  const sweepGaps = bars.map(() => []);
+  tiles.forEach((t) => {
+    const sec = (t.beats * 60) / t.qpm;
+    if (t.sweep && sec >= 0.03 && sec < ORN_GAP) sweepGaps[barOf(t)].push(sec);
+  });
+  sweepGaps.forEach((g, bi) => {
+    if (!g.length) return;
+    g.sort((a, b) => a - b);
+    ks[bi] = Math.min(3, Math.max(1, SWEEP_SEC / g[g.length >> 1])); // 그 마디 음계의 보통 간격 기준
+  });
+  for (let i = 1; i < ks.length; i++) ks[i] = Math.max(ks[i], ks[i - 1] / 1.15);
+  for (let i = ks.length - 2; i >= 0; i--) ks[i] = Math.max(ks[i], ks[i + 1] / 1.15);
+  // 템포는 원래대로 두고 늘임 비율만 기록 (k: 마스터, ks: 모든 난이도의 음계 구간)
   tiles.forEach((t) => {
     const bi = barOf(t);
-    t.k = k[bi];
+    t.ks = ks[bi];
+    t.k = Math.max(k[bi], ks[bi]);
     // 박 위치 표시: 2 = 마디 첫 박, 4 = 마디 가운데, 8 = 4분음표 박
     const pos = r6(t.start - bars[bi].start);
     t.flags = (pos === 0 ? 2 : 0) | (Math.abs(pos - bars[bi].len / 2) < 1e-6 ? 4 : 0) | (Math.abs(pos - Math.round(pos)) < 1e-6 ? 8 : 0);
@@ -366,8 +391,10 @@ function convert(opts) {
       const ev = t.notes.map((n) => [
         Math.round((n.s - t.start) * TICKS), n.m, Math.max(1, Math.round((n.e - n.s) * TICKS)), n.v,
       ].join('.'));
-      const flags = (t.pedal ? 1 : 0) | (t.flags || 0);
-      const tail = t.k && t.k > 1.001 ? ',' + flags + ',' + Math.round(t.k * 1000) / 1000 : flags ? ',' + flags : '';
+      const flags = (t.pedal ? 1 : 0) | (t.flags || 0) | (t.sweep ? 16 : 0);
+      const r3 = (x) => Math.round((x || 1) * 1000) / 1000;
+      const tail = (t.ks || 1) > 1.001 ? ',' + flags + ',' + r3(t.k) + ',' + r3(t.ks)
+        : (t.k || 1) > 1.001 ? ',' + flags + ',' + r3(t.k) : flags ? ',' + flags : '';
       return t.rows + ',' + r6(t.beats) + ',' + Math.round(t.qpm * 100) / 100 + tail + ':' + ev.join(';');
     });
     if (toks.length) lines.push('    ' + toks.join(' ') + '  // m.' + (bi + 1));

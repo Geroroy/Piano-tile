@@ -49,8 +49,9 @@
   /*
    * MIDI 변환기(tools/midi2chart.js)가 만드는 '시간 기록' 차트
    *   칸,박,템포[,표시[,늘임]]:시작.음.길이.세기;...   (시작·길이는 1박 = 96, 칸이 0이면 '한 순간 = 한 타일' 모드)
-   *     표시: 1 = 페달 다시 밟기, 2 = 마디 첫 박, 4 = 마디 가운데, 8 = 4분음표 박
+   *     표시: 1 = 페달 다시 밟기, 2 = 마디 첫 박, 4 = 마디 가운데, 8 = 4분음표 박, 16 = 음계(쓸어 올리기/내리기)
    *     늘임: 손으로 칠 수 없을 만큼 빠른 마디를 '마스터' 난이도에서 늘이는 비율
+   *     음계 늘임: 아주 빠른 음계 구간을 모든 난이도에서 늘이는 비율
    *   r:칸                               쉼표
    * '//' 뒤는 주석
    */
@@ -62,13 +63,13 @@
         if (!tok) continue;
         const [head, body] = tok.split(':');
         if (head === 'r') { steps.push({ rest: true, rows: parseFloat(body) }); continue; }
-        const [rows, beats, qpm, flags, k] = head.split(',').map(Number);
+        const [rows, beats, qpm, flags, k, ks] = head.split(',').map(Number);
         if (!(rows >= 0 && beats > 0 && qpm > 0)) throw new Error('잘못된 타일: "' + tok + '"');
         const events = (body ? body.split(';') : []).map((e) => {
           const [o, m, d, v] = e.split('.').map(Number);
           return { o: o / TICKS, m, d: d / TICKS, v: v / 127 };
         });
-        steps.push({ rows, beats, qpm, events, pedal: ((flags | 0) & 1) === 1, flags: flags | 0, k: k || 1 });
+        steps.push({ rows, beats, qpm, events, pedal: ((flags | 0) & 1) === 1, flags: flags | 0, k: k || 1, ks: ks || 1 });
       }
     }
     return steps;
@@ -99,7 +100,7 @@
           // 마스터: 칠 수 있게 늘린 시간 / 그 밖: 원곡 템포 그대로 (치는 순간을 줄이므로 늘릴 필요 없음)
           const full = stretch
             ? Math.max(ONSET_MIN_ROWS, st.beats * secPerBeat * st.k * ONSET_RPS)
-            : Math.max(0.02, st.beats * secPerBeat * ONSET_RPS);
+            : Math.max(0.02, st.beats * secPerBeat * st.ks * ONSET_RPS);
           const h = Math.min(full, ONSET_MAX_ROWS);
           while (di + 1 < dirs.length && dirs[di + 1].tile <= tileNo) di++;
           out.push({
@@ -324,7 +325,10 @@
     // 올라가면 1→2→3→4→1→2…, 내려가면 4→3→2→1→4…
     const stepDir = (i) => {
       const d = tiles[i].pitch - tiles[i - 1].pitch;
-      return d !== 0 && Math.abs(d) <= 4 && tiles[i].y - tiles[i - 1].y < win ? Math.sign(d) : 0;
+      // 음계 구간(표시 16)에서는 난이도에 따라 2~3음마다 치므로 완전5도까지를 '한 걸음'으로 본다
+      const inSweep = (tiles[i].st.flags & 16) && (tiles[i - 1].st.flags & 16);
+      const maxStep = inSweep ? 7 : 4;
+      return d !== 0 && Math.abs(d) <= maxStep && tiles[i].y - tiles[i - 1].y < win ? Math.sign(d) : 0;
     };
     for (let i = 1; i < tiles.length;) {
       const dir = stepDir(i);
