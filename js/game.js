@@ -45,7 +45,8 @@
     set(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { /* 저장 불가 환경 */ } },
   };
 
-  const settings = Object.assign({ speed: 'normal', practice: false, sectionOnly: true }, store.get('pt.settings') || {});
+  const settings = Object.assign({ speed: 'normal', level: 'challenge', practice: false, sectionOnly: true }, store.get('pt.settings') || {});
+  if (!PianoTiles.LEVELS[settings.level]) settings.level = 'challenge';
   if (!SPEEDS[settings.speed]) settings.speed = 'normal';
 
   // ---------- 차트 생성 ----------
@@ -63,34 +64,45 @@
     };
   }
 
-  const stepCache = new Map();
+  // 선택한 난이도의 타일 목록 (notation.js 에서 캐시)
   function songData(song) {
-    if (!stepCache.has(song)) stepCache.set(song, PianoTiles.songSteps(song));
-    return stepCache.get(song);
+    return PianoTiles.levelSteps(song, settings.level);
   }
 
   // startSection ~ endSection 구간만 담은 차트. 줄 배치는 곡마다 고정(시드)이라 어디서 시작해도 같다.
   function buildChart(song, startSection, endSection) {
     const { steps, sections } = songData(song);
-    const rand = rng32(hashStr(song.id));
+    const rand = rng32(hashStr(song.id + ':' + settings.level));
     const tiles = [];
     let y = 0;
-    let prevLane = -1;
+    let prevLane = -1, prevY = -Infinity, prevTop = 0, prevDir = 1, yAll = 0;
     let started = false;
     for (const st of steps) {
       let lane = -1;
       if (!st.rest) {
-        do { lane = Math.floor(rand() * LANES); } while (lane === prevLane);
+        // 빠르게 이어지는 타일은 선율 방향(올라가면 오른쪽, 내려가면 왼쪽)으로 옆 줄에 놓는다
+        if (prevLane >= 0 && yAll - prevY < 1.05) {
+          let dir = Math.sign(st.top - prevTop) || -prevDir;
+          lane = prevLane + dir;
+          if (lane < 0 || lane >= LANES) { dir = -dir; lane = prevLane + dir; }
+          prevDir = dir;
+        } else {
+          do { lane = Math.floor(rand() * LANES); } while (lane === prevLane);
+        }
         prevLane = lane;
+        prevY = yAll;
+        prevTop = st.top;
         if (!started && st.section >= startSection) started = true;
       }
+      yAll += st.rows;
       if (!started) continue;
       if (!st.rest && st.section > endSection) break;
       if (st.rest) { y += st.rows; continue; }
       tiles.push({
         y, h: st.rows, lane, section: st.section, rps: st.rows / st.sec, direction: st.direction || '',
         events: st.events.slice().sort((a, b) => a.o - b.o), evIdx: -1,
-        run: st.events.some((e) => e.o > 1e-6), // 트릴·꾸밈음처럼 한 번에 여러 음이 흘러나오는 타일
+        // 트릴·꾸밈음처럼 한 번에 여러 음이 흘러나오는 타일 (마스터에서만 표시; 다른 난이도는 자동 반주가 붙는 게 보통)
+        run: settings.level === 'master' && st.events.some((e) => e.o > 1e-6),
         long: st.rows >= 2, played: false, missed: false,
         holdStart: 0, holdProgress: 0, holding: false, voices: null, playedAt: 0,
       });
@@ -348,7 +360,7 @@
     ui.resultTitle.textContent = cleared ? (settings.practice ? '연습 완주!' : '완주!') : '실패';
     ui.resultStars.textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
     ui.resultScore.textContent = score;
-    const parts = [chart.song.title, SPEEDS[settings.speed].label, '진행 ' + Math.round(ratio * 100) + '%'];
+    const parts = [chart.song.title, PianoTiles.LEVELS[settings.level].label, SPEEDS[settings.speed].label, '진행 ' + Math.round(ratio * 100) + '%'];
     if (!isFullRun()) {
       parts.push(chart.startSection === chart.endSection
         ? '구간: ' + chart.sections[chart.startSection]
@@ -358,7 +370,7 @@
     ui.resultDetail.textContent = parts.join(' · ');
 
     if (!settings.practice && isFullRun()) {
-      const key = 'pt.best.' + chart.song.id + '.' + settings.speed;
+      const key = 'pt.best.' + chart.song.id + '.' + settings.speed + '.' + settings.level;
       const best = store.get(key) || { score: 0, stars: 0 };
       if (score > best.score || stars > best.stars) {
         store.set(key, { score: Math.max(score, best.score), stars: Math.max(stars, best.stars) });
@@ -801,11 +813,15 @@
     document.querySelectorAll('[data-speed]').forEach((b) => {
       b.setAttribute('aria-pressed', String(b.dataset.speed === settings.speed));
     });
+    document.querySelectorAll('[data-level]').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset.level === settings.level));
+    });
+    $('#level-hint').textContent = LEVEL_HINTS[settings.level];
     $('#opt-practice').checked = settings.practice;
 
     ui.songList.innerHTML = '';
     PianoTiles.songs.forEach((song, si) => {
-      const best = store.get('pt.best.' + song.id + '.' + settings.speed);
+      const best = store.get('pt.best.' + song.id + '.' + settings.speed + '.' + settings.level);
       const { steps, sections } = songData(song);
       const tileCount = steps.filter((st) => !st.rest).length;
       const minutes = steps.reduce((sum, st) => sum + st.sec, 0) / SPEEDS[settings.speed].mult / 60;
@@ -934,6 +950,19 @@
     box.appendChild(list);
     return box;
   }
+
+  const LEVEL_HINTS = {
+    basic: '중요한 순간만 칩니다. 나머지 음은 제 박자에 자동으로 울립니다.',
+    challenge: '멜로디와 박을 거의 다 칩니다. 빠른 반주·꾸밈음은 자동으로 울립니다.',
+    master: '악보의 모든 순간을 직접 칩니다. 너무 빠른 마디는 조금 늘려 연주합니다.',
+  };
+  document.querySelectorAll('[data-level]').forEach((b) => {
+    b.addEventListener('click', () => {
+      settings.level = b.dataset.level;
+      store.set('pt.settings', settings);
+      renderMenu();
+    });
+  });
 
   document.querySelectorAll('[data-speed]').forEach((b) => {
     b.addEventListener('click', () => {

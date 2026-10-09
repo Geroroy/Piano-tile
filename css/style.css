@@ -167,6 +167,7 @@ button, select { font: inherit; color: inherit; cursor: pointer; }
   font-size: 14px;
 }
 .seg button[aria-pressed="true"] { background: var(--yellow); color: var(--ink); font-weight: 700; }
+.level-hint { margin: -4px 0 2px; max-width: 30em; text-align: center; font-size: 12px; line-height: 1.5; color: var(--on-dark-muted); }
 .toggle { display: flex; align-items: center; gap: 8px; color: var(--on-dark-muted); font-size: 14px; }
 .toggle input { width: 17px; height: 17px; accent-color: var(--yellow); }
 .sample-status {

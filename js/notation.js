@@ -48,8 +48,9 @@
 
   /*
    * MIDI 변환기(tools/midi2chart.js)가 만드는 '시간 기록' 차트
-   *   칸,박,템포[,1]:시작.음.길이.세기;...   (시작·길이는 1박 = 96, 칸이 0이면 '한 순간 = 한 타일' 모드,
-   *                                        끝의 ,1 은 이 순간에 페달을 다시 밟는다는 표시)
+   *   칸,박,템포[,표시[,늘임]]:시작.음.길이.세기;...   (시작·길이는 1박 = 96, 칸이 0이면 '한 순간 = 한 타일' 모드)
+   *     표시: 1 = 페달 다시 밟기, 2 = 마디 첫 박, 4 = 마디 가운데, 8 = 4분음표 박
+   *     늘임: 손으로 칠 수 없을 만큼 빠른 마디를 '마스터' 난이도에서 늘이는 비율
    *   r:칸                               쉼표
    * '//' 뒤는 주석
    */
@@ -61,13 +62,13 @@
         if (!tok) continue;
         const [head, body] = tok.split(':');
         if (head === 'r') { steps.push({ rest: true, rows: parseFloat(body) }); continue; }
-        const [rows, beats, qpm, pedal] = head.split(',').map(Number);
+        const [rows, beats, qpm, flags, k] = head.split(',').map(Number);
         if (!(rows >= 0 && beats > 0 && qpm > 0)) throw new Error('잘못된 타일: "' + tok + '"');
         const events = (body ? body.split(';') : []).map((e) => {
           const [o, m, d, v] = e.split('.').map(Number);
           return { o: o / TICKS, m, d: d / TICKS, v: v / 127 };
         });
-        steps.push({ rows, beats, qpm, events, pedal: pedal === 1 });
+        steps.push({ rows, beats, qpm, events, pedal: ((flags | 0) & 1) === 1, flags: flags | 0, k: k || 1 });
       }
     }
     return steps;
@@ -84,7 +85,7 @@
   const ONSET_RPS = 3.2;
   const ONSET_MIN_ROWS = 0.42; // 안전장치 (변환기가 이미 마디 단위로 늘려 둠)
   const ONSET_MAX_ROWS = 3;
-  function songSteps(song) {
+  function songSteps(song, stretch) {
     const out = [];
     if (song.chart) {
       const marks = (song.sections || [{ name: song.title, tile: 0 }]).slice().sort((a, b) => a.tile - b.tile);
@@ -95,7 +96,10 @@
         if (st.rest) { out.push({ rest: true, rows: st.rows, sec: null }); continue; }
         while (si + 1 < marks.length && marks[si + 1].tile <= tileNo) si++;
         if (st.rows === 0) {
-          const full = Math.max(ONSET_MIN_ROWS, st.beats * secPerBeat * ONSET_RPS);
+          // 마스터: 칠 수 있게 늘린 시간 / 그 밖: 원곡 템포 그대로 (치는 순간을 줄이므로 늘릴 필요 없음)
+          const full = stretch
+            ? Math.max(ONSET_MIN_ROWS, st.beats * secPerBeat * st.k * ONSET_RPS)
+            : Math.max(0.02, st.beats * secPerBeat * ONSET_RPS);
           const h = Math.min(full, ONSET_MAX_ROWS);
           while (di + 1 < dirs.length && dirs[di + 1].tile <= tileNo) di++;
           out.push({
@@ -104,6 +108,7 @@
             section: si,
             direction: di >= 0 && dirs[di].tile <= tileNo ? dirs[di].text : '',
             pedal: st.pedal,
+            flags: st.flags,
             // 길이는 원래 음 사이 간격 대비 비율 → 늘어난 만큼 함께 늘어남
             // 시작·길이는 원래 음 사이 간격 대비 비율 → 늘어난 만큼 함께 늘어남 (꾸밈음 타일은 o>0)
             events: st.events.map((e) => ({ o: (e.o / st.beats) * (full / h), d: (e.d / st.beats) * (full / h), m: e.m, v: e.v })),
@@ -178,10 +183,109 @@
     }
   }
 
+  /*
+   * 난이도: 치는 순간(타일)을 음악적으로 중요한 순간만 남기고, 나머지 음은 그 타일에 붙여 제 박자에 자동으로 울린다.
+   * 화면은 계속 원곡 템포로 흐르므로 싱크는 그대로다.
+   *   minGap: 타일 사이 최소 간격(초). null 이면 모든 순간을 친다(마스터).
+   */
+  const LEVELS = {
+    basic: { label: '기본', minGap: 0.34 },
+    challenge: { label: '도전', minGap: 0.235 },
+    master: { label: '마스터', minGap: null },
+  };
+
+  // 순간의 중요도: 첫 박·박, 멜로디(높은 음), 세기, 화성 변화, 다음 음까지 길이
+  function importance(t, top, spanRows) {
+    const pitches = t.events.filter((e) => e.o < 1e-6).map((e) => e.m);
+    const hi = Math.max(...pitches), lo = Math.min(...pitches);
+    let s = 0;
+    if (t.flags & 2) s += 4;
+    if (t.flags & 4) s += 2.5;
+    if (t.flags & 8) s += 1.2;
+    if (t.pedal) s += 1.2;
+    if (hi >= top - 2) s += 2.2; // 그 근처에서 가장 높은 선율
+    if (hi < 55) s -= 1.2; // 베이스만 있는 순간
+    s += Math.max(...t.events.map((e) => e.v)) * 1.5;
+    s += Math.min(2, (spanRows / ONSET_RPS) * 2.5);
+    s += Math.min(1, (pitches.length - 1) * 0.3); // 화음
+    return s + (hi - lo > 0 ? 0 : 0);
+  }
+
+  function thin(steps, minGap) {
+    let y = 0;
+    const tiles = [];
+    for (const st of steps) {
+      if (!st.rest) tiles.push({ st, y });
+      y += st.rows;
+    }
+    const total = y;
+    const minRows = minGap * ONSET_RPS;
+    // 근처(±0.6초)에서 가장 높은 음 = 멜로디 추정
+    const win = 0.6 * ONSET_RPS;
+    const tops = tiles.map((t) => Math.max(...t.st.events.map((e) => e.m)));
+    tiles.forEach((t, i) => {
+      let top = tops[i];
+      for (let j = i - 1; j >= 0 && t.y - tiles[j].y < win; j--) top = Math.max(top, tops[j]);
+      for (let j = i + 1; j < tiles.length && tiles[j].y - t.y < win; j++) top = Math.max(top, tops[j]);
+      const span = (i + 1 < tiles.length ? tiles[i + 1].y : total) - t.y;
+      t.score = importance(t.st, top, span);
+      t.top = tops[i];
+    });
+    const kept = [];
+    tiles.forEach((t, i) => {
+      const forced = i === 0 || t.st.section !== tiles[i - 1].st.section;
+      const last = kept[kept.length - 1];
+      if (!last || forced || t.y - last.y >= minRows - 1e-6) { kept.push(t); return; }
+      // 너무 가까우면 더 중요한 쪽을 남긴다 (그 앞 타일과의 간격도 지켜질 때만)
+      const prev = kept[kept.length - 2];
+      const lastForced = last === tiles[0] || (tiles[tiles.indexOf(last) - 1] && tiles[tiles.indexOf(last) - 1].st.section !== last.st.section);
+      if (!lastForced && t.score > last.score + 0.4 && (!prev || t.y - prev.y >= minRows - 1e-6)) kept[kept.length - 1] = t;
+    });
+    // 남긴 타일마다 다음 타일 전까지의 모든 음을 붙인다
+    const out = [];
+    let ti = 0;
+    kept.forEach((k, j) => {
+      const endY = j + 1 < kept.length ? kept[j + 1].y : total;
+      while (tiles[ti] !== k) ti++;
+      const span = endY - k.y;
+      const h = Math.min(span, ONSET_MAX_ROWS);
+      const events = [];
+      for (let x = ti; x < tiles.length && tiles[x].y < endY - 1e-9; x++) {
+        const src = tiles[x];
+        src.st.events.forEach((e) => {
+          const p = src.y + e.o * src.st.rows;
+          events.push({ o: (p - k.y) / h, d: (e.d * src.st.rows) / h, m: e.m, v: e.v });
+        });
+      }
+      out.push({ rows: h, sec: h / ONSET_RPS, section: k.st.section, direction: k.st.direction, flags: k.st.flags, events, top: k.top });
+      if (span > h + 1e-9) out.push({ rest: true, rows: span - h, sec: (span - h) / ONSET_RPS });
+    });
+    return out;
+  }
+
+  const levelCache = new Map();
+  function levelSteps(song, level) {
+    const key = song.id + ':' + level;
+    if (levelCache.has(key)) return levelCache.get(key);
+    const lv = LEVELS[level] || LEVELS.challenge;
+    let res;
+    if (!song.chart || lv.minGap === null) {
+      res = songSteps(song, true);
+    } else {
+      const base = songSteps(song, false);
+      res = { steps: thin(base.steps, lv.minGap), sections: base.sections };
+    }
+    res.steps.forEach((st) => {
+      if (!st.rest && st.top === undefined) st.top = Math.max(...st.events.map((e) => e.m));
+    });
+    levelCache.set(key, res);
+    return res;
+  }
+
   const songs = [];
   function registerSong(song) {
     // 등록 시점에 표기 오류를 바로 잡아낸다
-    try { songSteps(song); }
+    try { songSteps(song, true); }
     catch (e) { throw new Error('[' + song.title + '] ' + e.message); }
     songs.push(song);
   }
@@ -189,5 +293,5 @@
   const composers = {};
   function registerComposer(c) { composers[c.id] = c; }
 
-  global.PianoTiles = { songs, registerSong, composers, registerComposer, parseNotation, parseTimedChart, songSteps, noteToMidi };
+  global.PianoTiles = { songs, registerSong, levelSteps, LEVELS, composers, registerComposer, parseNotation, parseTimedChart, songSteps, noteToMidi };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -200,7 +200,14 @@ function stretchBars(tiles, bars) {
   });
   for (let i = 1; i < k.length; i++) k[i] = Math.max(k[i], k[i - 1] / STRETCH_STEP);
   for (let i = k.length - 2; i >= 0; i--) k[i] = Math.max(k[i], k[i + 1] / STRETCH_STEP);
-  tiles.forEach((t) => { t.qpm /= k[barOf(t)]; });
+  // 템포는 원래대로 두고 늘임 비율만 기록 (게임의 '마스터' 난이도에서만 적용)
+  tiles.forEach((t) => {
+    const bi = barOf(t);
+    t.k = k[bi];
+    // 박 위치 표시: 2 = 마디 첫 박, 4 = 마디 가운데, 8 = 4분음표 박
+    const pos = r6(t.start - bars[bi].start);
+    t.flags = (pos === 0 ? 2 : 0) | (Math.abs(pos - bars[bi].len / 2) < 1e-6 ? 4 : 0) | (Math.abs(pos - Math.round(pos)) < 1e-6 ? 8 : 0);
+  });
   if (process.env.STRETCH_DEBUG) {
     k.forEach((x, i) => { if (x > 1.25) process.stderr.write('  m' + (i + 1) + ' x' + x.toFixed(2) + '\n'); });
   }
@@ -359,7 +366,9 @@ function convert(opts) {
       const ev = t.notes.map((n) => [
         Math.round((n.s - t.start) * TICKS), n.m, Math.max(1, Math.round((n.e - n.s) * TICKS)), n.v,
       ].join('.'));
-      return t.rows + ',' + r6(t.beats) + ',' + Math.round(t.qpm * 100) / 100 + (t.pedal ? ',1' : '') + ':' + ev.join(';');
+      const flags = (t.pedal ? 1 : 0) | (t.flags || 0);
+      const tail = t.k && t.k > 1.001 ? ',' + flags + ',' + Math.round(t.k * 1000) / 1000 : flags ? ',' + flags : '';
+      return t.rows + ',' + r6(t.beats) + ',' + Math.round(t.qpm * 100) / 100 + tail + ':' + ev.join(';');
     });
     if (toks.length) lines.push('    ' + toks.join(' ') + '  // m.' + (bi + 1));
   });
